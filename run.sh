@@ -6,7 +6,7 @@ echo "working directory $(pwd)"
 
 
 
-file_path="/Users/xcoder/Desktop/Deep Learning using Rectified Linear Units (ReLU).pdf"
+file_path="/Users/xcoder/obsidian/Profession/attachments/Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.pdf"
 output_dir='./parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
@@ -24,6 +24,6 @@ python main.py \
     --src_lang=$src_lang \
     --target_lang=$target_lang \
     --ollama_host=$ollama_host \
-    --ollama_model=$ollama_model
-
+    --ollama_model=$ollama_model \
+    > processing.log 2>&1
 
