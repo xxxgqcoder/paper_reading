@@ -40,21 +40,21 @@
     },
     "llm-aided-config": {
         "formula_aided": {
-            "api_key": "your_api_key",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen2.5-7b-instruct",
+            "api_key": "x",
+            "base_url": "http://127.0.0.1:11434",
+            "model": "qwen3:8b",
             "enable": false
         },
         "text_aided": {
-            "api_key": "your_api_key",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen2.5-7b-instruct",
+            "api_key": "x",
+            "base_url": "http://127.0.0.1:11434",
+            "model": "qwen3:8b",
             "enable": false
         },
         "title_aided": {
-            "api_key": "your_api_key",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen2.5-32b-instruct",
+            "api_key": "x",
+            "base_url": "http://127.0.0.1:11434",
+            "model": "qwen3:30b-a3b",
             "enable": false
         }
     },
