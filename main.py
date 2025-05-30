@@ -4,10 +4,22 @@ import pickle
 import json
 import re
 import shutil
+import time
 from io import TextIOWrapper
 from typing import Any, Dict
 
 from ollama import Client
+
+
+def time_it(func):
+
+    def wrapper(*kargs, **kwargs):
+        begin = time.time_ns()
+        func(*kargs, **kwargs)
+        elapse = (time.time_ns() - begin) // 1000
+        print(f"func {func.__name__} took {elapse} ms to finish")
+
+    return wrapper
 
 
 # ==============================================================================
@@ -78,6 +90,7 @@ def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
     return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
 
 
+@time_it
 def parse_pdf(
     file_path: str,
     asset_dir: str,
@@ -342,6 +355,7 @@ def translate_text_content(content: Dict[str, Any]) -> None:
     content['translated_text'] = post_text_process(translated_text)
 
 
+@time_it
 def translate_content(content_list: list[Dict[str, Any]]):
     """
     Translate contents.
@@ -446,6 +460,7 @@ def save_transalted_content(
 # summary paper content
 
 
+@time_it
 def summary_content(content_list: list[Dict[str, Any]]) -> None:
     global summary_prompt, src_lang, target_lang
     print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
@@ -668,7 +683,6 @@ if __name__ == '__main__':
     target_lang = args.target_lang
     target_lang = lang_mapping[target_lang]
     print(f'target language: {target_lang}')
-
 
     print(f'processing file: {os.path.basename(args.file_path)}')
     process(
