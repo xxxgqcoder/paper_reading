@@ -669,6 +669,8 @@ if __name__ == '__main__':
     target_lang = lang_mapping[target_lang]
     print(f'target language: {target_lang}')
 
+
+    print(f'processing file: {os.path.basename(args.file_path)}')
     process(
         file_path=args.file_path,
         output_dir=output_dir,
