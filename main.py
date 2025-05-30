@@ -371,7 +371,7 @@ def translate_content(content_list: list[Dict[str, Any]]):
     with open(translated_pickle_content_path, 'wb') as f:
         pickle.dump(content_list, f)
         print(
-            f'save intermediate  content list to {translated_pickle_content_path}'
+            f'save translated  content list to {translated_pickle_content_path}'
         )
 
 
@@ -431,7 +431,8 @@ def save_transalted_content(
                 abs_img_path = os.path.join(output_dir, content['img_path'])
                 img_name = os.path.basename(abs_img_path)
                 save_image(abs_img_path, sys_image_folder)
-                md_writer.write(format_md_image_path(img_name) + "\n\n")
+                md_writer.write(
+                    format_md_image_path(sys_image_folder, img_name) + "\n\n")
 
             if 'translated_table_caption' in content:
                 translated_table_caption = content['translated_table_caption']
@@ -447,6 +448,8 @@ def save_transalted_content(
 
 def summary_content(content_list: list[Dict[str, Any]]) -> None:
     global summary_prompt, src_lang, target_lang
+    print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
+
     full_content = ''
     for content in content_list:
         if content['type'] == 'text':
@@ -520,19 +523,19 @@ def process(
     print(f'file name witout out suffix: {name_without_suff}')
 
     # parse pdf
-    # content_list = parse_pdf(
-    #     file_path=file_path,
-    #     asset_dir=output_dir,
-    #     magic_config_path=magic_config_path,
-    # )
-    # pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    # with open(pickle_content_path, 'wb') as f:
-    #     pickle.dump(content_list, f)
-    #     print(f'save parsed content list to {pickle_content_path}')
-
+    content_list = parse_pdf(
+        file_path=file_path,
+        asset_dir=output_dir,
+        magic_config_path=magic_config_path,
+    )
     pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    with open(pickle_content_path, 'rb') as f:
-        content_list = pickle.load(f)
+    with open(pickle_content_path, 'wb') as f:
+        pickle.dump(content_list, f)
+        print(f'save parsed content list to {pickle_content_path}')
+
+    # pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
+    # with open(pickle_content_path, 'rb') as f:
+    #     content_list = pickle.load(f)
 
     # md writer
     md_file_path = os.path.join(
@@ -632,17 +635,11 @@ if __name__ == '__main__':
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
     print(f'final md save folder: {final_md_file_save_dir}')
 
-    src_lang = args.src_lang
-    print(f'source language: {src_lang}')
-
-    target_lang = args.target_lang
-    print(f'target language: {target_lang}')
-
     # global variables
     ollama_host = 'http://127.0.0.1:11434'
     ollama_model = 'qwen3:30b-a3b'
 
-    lang_mapping = {'en': "中文", 'zh': "英语"}
+    lang_mapping = {'en': "英语", 'zh': "中文"}
     gen_conf = {
         'temperature': 0.1,
         'top_p': 0.3,
@@ -656,15 +653,21 @@ if __name__ == '__main__':
     """
 
     summary_prompt = """
-    <no_think>你是一个论文助手，总结下面{src_lang}论文内容，使用{target_lang}语言。总结内容包括论文主要创新点。
+    <no_think>你是一个论文助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容包括论文主要创新点。
 
     {content}
     """
 
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
+
+    src_lang = args.src_lang
     src_lang = lang_mapping[src_lang]
+    print(f'source language: {src_lang}')
+
+    target_lang = args.target_lang
     target_lang = lang_mapping[target_lang]
+    print(f'target language: {target_lang}')
 
     process(
         file_path=args.file_path,
