@@ -3,32 +3,118 @@ import re
 import shutil
 import time
 import os
+import json
+import pickle
 from typing import Dict, Any
 
-from utils import (time_it, safe_strip)
+from utils import (
+    time_it,
+    safe_strip,
+    run_once,
+)
 # ==============================================================================
 # parse pdf
 
-# class Content():
 
-#     def __init__(
-#         self,
-#         raw_content: Dict[str, Any],
-#         **kwargs,
-#     ):
-#         """
-#         Args:
-#         - raw_content: original json content.
-#         """
-#         for k, v in kwargs.items():
-#             setattr(self, k, v)
+class Content():
 
-#     def is_valid_content(self, ) -> bool:
+    def __init__(
+        self,
+        raw_content: Dict[str, Any],
+        **kwargs,
+    ):
+        """
+        Args:
+        - raw_content: original json content.
+        """
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        self.raw_content = raw_content
+        # set attribute
+        all_keys = [
+            'img_caption',
+            'img_footnote',
+            'img_path',
+            'page_idx',
+            'table_body',
+            'table_caption',
+            'table_footnote',
+            'text',
+            'text_format',
+            'text_level',
+            'type',
+        ]
+        for k in all_keys:
+            if k in raw_content:
+                setattr(self, k, raw_content[k])
+            else:
+                setattr(self, k, None)
+        missing = [k for k in raw_content if k not in all_keys]
+        if missing:
+            print(f'keys found in raw content but not key list: {missing}')
 
-#         pass
+    @run_once
+    def is_valid(self, ) -> bool:
+        """
+        There are corner cases where returned content dont contain expected keys 
+        or values are empty.
 
-#     def is_empty(self, ) -> bool:
-#         pass
+        Returns:
+        - bool, true if content is valid.
+        """
+        if self.raw_content is None:
+            return False
+        # missing key
+        if 'type' not in self.raw_content:
+            self.invalid_reason = "missing key: `type`"
+            return False
+
+        # text / equation
+        if self.raw_content['type'] in ['text', 'equation']:
+            if 'text' not in self.raw_content:
+                self.invalid_reason = "missing key: `text`"
+                return False
+
+        # image
+        if self.raw_content['type'] == 'image':
+            if 'img_path' not in self.raw_content:
+                self.invalid_reason = "missing key: `img_path`"
+                return False
+            if len(self.raw_content['img_path']) < 1:
+                self.invalid_reason = "img_path empty"
+                return False
+
+        # table
+        if self.raw_content['type'] == 'table':
+            if 'table_body' not in self.raw_content:
+                self.invalid_reason = "missing key: `table_body`"
+                return False
+
+        return True
+
+    def __str__(self, ) -> str:
+        if not self.is_valid():
+            return 'content is invaid\n' \
+                + f"invalid reason: {self.valid_reason}\n" \
+                + f"original content: {json.dumps(self.raw_content, indent=4)}"
+
+        if self.raw_content['type'] in ['text', 'equation']:
+            return self.raw_content['text']
+
+        elif self.raw_content['type'] in ['image']:
+            return 'content is image \n' \
+                + f"image path: {self.raw_content['img_path']} \n" \
+                + f"image caption: {self.raw_content['img_caption']} \n" \
+                + f"image footnote: {self.raw_content['img_footnote']} \n"
+
+        elif self.raw_content['type'] in ['table']:
+            return 'content is table \n' \
+                + f"table body: {self.raw_content['table_body']} \n" \
+                + f"table caption: {self.raw_content['table_caption']} \n" \
+                + f"table footnote: {self.raw_content['table_footnote']} \n"
+
+        else:
+            return f"unregnized content: {json.dumps(self.raw_content, indent=4)}"
 
 
 def is_empty(text: str):
@@ -50,39 +136,12 @@ def post_text_process(text: str) -> str:
     return text
 
 
-def is_valid_content(content: Dict[str, Any]) -> bool:
-    """
-    There are corner cases where returned content dont contain expected keys 
-    or values are empty.
-
-    Returns:
-    - bool, true if content is valid.
-    """
-    # missing key
-    if 'type' not in content:
-        return False
-
-    # text / equation
-    if content['type'] in ['text', 'equation']:
-        return 'text' in content
-
-    # image
-    if content['type'] == 'image':
-        return 'img_path' in content and len(content['img_path']) > 0
-
-    # table
-    if content['type'] == 'table':
-        return 'table_body' in content
-
-    return True
-
-
 @time_it
 def parse_pdf(
     file_path: str,
     asset_dir: str,
     magic_config_path: str,
-) -> list[Dict[str, Any]]:
+) -> list[Content]:
     """
     Parse PDF content and return content list. The result is a list of json 
     oject representing a pdf content block.
@@ -193,6 +252,12 @@ def parse_pdf(
     # clean up memory
     clean_memory(get_device())
 
+    # save content list
+    pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
+    with open(pickle_content_path, 'wb') as f:
+        pickle.dump(content_list, f)
+        print(f'save parsed content list to {pickle_content_path}')
+
     obj = ModelSingleton()
     try:
         del obj
@@ -200,4 +265,4 @@ def parse_pdf(
     except Exception as e:
         print(f"Exception: {type(e).__name__} - {e}")
 
-    return content_list
+    return [Content(raw_content=content) for content in content_list]
