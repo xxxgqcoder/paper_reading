@@ -102,15 +102,15 @@ class Content():
 
         elif self.type == ContentType.IMAGE:
             return 'content is image \n' \
-                + f"image path: {self.get('img_path')} \n" \
-                + f"image caption: {self.get('img_caption')} \n" \
-                + f"image footnote: {self.get('img_footnote')} \n"
+                + f"image path: {self.img_path} \n" \
+                + f"image caption: {self.img_caption} \n" \
+                + f"image footnote: {self.img_footnote} \n"
 
         elif self.type == ContentType.TABLE:
             return 'content is table \n' \
-                + f"table body: {self.get('table_body')} \n" \
-                + f"table caption: {self.get('table_caption')} \n" \
-                + f"table footnote: {self.get('table_footnote')} \n"
+                + f"table body: {self.table_body} \n" \
+                + f"table caption: {self.table_caption} \n" \
+                + f"table footnote: {self.table_footnote} \n"
 
         else:
             return f"unregnized content: {json.dumps(self.raw_content, indent=4)}"
