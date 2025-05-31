@@ -28,3 +28,17 @@ def safe_strip(raw: str) -> str:
         return ''
     raw = str(raw)
     return raw.strip()
+
+
+def run_once(func):
+    has_run = False
+    ret = None
+
+    def wrapper(*args, **kwargs):
+        nonlocal has_run, ret
+        if not has_run:
+            has_run = True
+            ret = func(*args, **kwargs)
+        return ret
+
+    return wrapper
