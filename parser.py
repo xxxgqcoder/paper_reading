@@ -115,14 +115,14 @@ class Content():
         else:
             return f"unregnized content: {json.dumps(self.raw_content, indent=4)}"
 
-    def get(self, key: str, default_val: str="") -> str:
+    def get(self, key: str, default_val: str = "") -> str:
         if key not in self.__dict__:
             return default_val
         val = self.__dict__[key]
         if val is None:
             return default_val
         return val
-    
+
     def set(self, key: str, value: str) -> None:
         setattr(self, key, value)
 
