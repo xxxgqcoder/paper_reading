@@ -25,13 +25,15 @@ from utils import (
     safe_strip,
 )
 
+line_breaker = '\n\n\n\n'
+
 
 def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
     """
     md image can only be corrct displayed when saved to same folder of the md file,
     reformatted inserted image path for better display.
     """
-    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
+    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
 
 
 # ==============================================================================
@@ -234,7 +236,7 @@ def save_transalted_content(
 
     md_writer.write('# ' + '=' * 8 \
                     + '  Translated content  ' \
-                    + '=' * 8 + '\n\n')
+                    + '=' * 8 + line_breaker)
 
     for content in content_list:
         lines = ''
@@ -246,10 +248,11 @@ def save_transalted_content(
             text = content.get('translated_text')
             if content.text_level == 1:
                 text = '# ' + text
-            lines += text + '\n\n'
+            lines += text + line_breaker
 
         elif content.type == ContentType.EQUATION:
-            lines += content.text + '\n\n'
+            print(content.text)
+            lines += content.text + line_breaker
 
         elif content.type == ContentType.IMAGE:
             # copy image
@@ -257,19 +260,19 @@ def save_transalted_content(
             img_name = os.path.basename(abs_img_path)
             save_image(abs_img_path, sys_image_folder)
             lines += format_md_image_path(sys_image_folder, img_name)
-            lines += '\n\n'
+            lines += line_breaker
 
             # image caption
             img_caption = content.get('translated_img_caption')
-            lines += img_caption + '\n\n'
+            lines += img_caption + line_breaker
 
             # image footnote
             img_footnote = content.get('translated_img_footnote')
-            lines += img_footnote + '\n\n'
+            lines += img_footnote + line_breaker
 
         elif content.type == ContentType.TABLE:
             table_body = content.table_body
-            lines += table_body + '\n\n'
+            lines += table_body + line_breaker
 
             img_path = content.img_path
             if len(img_path) > 0:
@@ -277,12 +280,11 @@ def save_transalted_content(
                 img_name = os.path.basename(abs_img_path)
                 save_image(abs_img_path, sys_image_folder)
 
-                lines += format_md_image_path(sys_image_folder,
-                                              img_name) + '\n\n'
-                lines += '-' * 8 + '\n\n'
+                lines += format_md_image_path(sys_image_folder, img_name)
+                lines += '-' * 8 + line_breaker
 
             caption = content.get('translated_table_caption')
-            lines += caption + "\n\n"
+            lines += caption + line_breaker
 
         else:
             print(
@@ -304,18 +306,18 @@ def summary_content(content_list: list[Content]) -> None:
             text = content.text
             if content.text_level == 1:
                 text = '# ' + text
-            full_content += text + '\n\n'
+            full_content += text + line_breaker
 
         elif content.type == ContentType.EQUATION:
             text = content.text
-            full_content += text + '\n\n'
+            full_content += text + line_breaker
 
         elif content.type == ContentType.IMAGE:
-            full_content += str(content.img_caption) + '\n\n'
-            full_content += str(content.img_footnote) + '\n\n'
+            full_content += str(content.img_caption) + line_breaker
+            full_content += str(content.img_footnote) + line_breaker
 
         elif content.type == ContentType.TABLE:
-            full_content += str(content.table_caption) + '\n\n'
+            full_content += str(content.table_caption) + line_breaker
 
         else:
             print(f'unrecognized content: {json.dumps(content, indent=4)}')
@@ -336,9 +338,10 @@ def save_summary_of_content(
     summary: str,
     **kwargs,
 ):
-    md_writer.write('# ' + '=' * 8 + '  Paper summary  ' + '=' * 8 + '\n\n')
-    md_writer.write(summary + '\n\n')
-    md_writer.write('-' * 8 + '\n\n')
+    md_writer.write('# ' + '=' * 8 + '  Paper summary  ' + '=' * 8 +
+                    line_breaker)
+    md_writer.write(summary + line_breaker)
+    md_writer.write('-' * 8 + line_breaker)
 
 
 @time_it
@@ -383,7 +386,7 @@ def process(
     )
     md_writer = open(md_file_path, 'w')
 
-    md_writer.write(f'paper: {name_without_suff}' + '\n\n')
+    md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
     # summary
     summary = summary_content(content_list=content_list)
