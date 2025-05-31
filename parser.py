@@ -120,6 +120,9 @@ class Content():
             return None
         return self.__dict__[key]
 
+    def set(self, key: str, value: str) -> None:
+        setattr(self, key, value)
+
 
 def is_empty(text: str):
     text = safe_strip(text)
