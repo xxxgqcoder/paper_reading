@@ -57,7 +57,7 @@ class Content():
             if k in raw_content:
                 setattr(self, k, raw_content[k])
             else:
-                setattr(self, k, None)
+                setattr(self, k, '')
         missing = [k for k in raw_content if k not in all_keys]
         if missing:
             print(f'keys found in raw content but not key list: {missing}')
