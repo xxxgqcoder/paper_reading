@@ -5,6 +5,7 @@ import json
 import re
 import shutil
 import time
+import gc
 from io import TextIOWrapper
 from typing import Any, Dict
 
@@ -15,9 +16,13 @@ def time_it(func):
 
     def wrapper(*kargs, **kwargs):
         begin = time.time_ns()
-        func(*kargs, **kwargs)
-        elapse = (time.time_ns() - begin) // 1000
-        print(f"func {func.__name__} took {elapse} ms to finish")
+        ret = func(*kargs, **kwargs)
+        elapse = (time.time_ns() - begin) // 1000000
+        print(
+            f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000)//1000}sec {elapse%60000%1000}ms to finish"
+        )
+
+        return ret
 
     return wrapper
 
@@ -32,9 +37,9 @@ def safe_strip(raw: str) -> str:
 
 
 def is_empty(text: str):
+    text = safe_strip(text)
     if text is None:
         return True
-    text = text.strip()
     if len(text) == 0:
         return True
     if text == '[]':
@@ -140,8 +145,10 @@ def parse_pdf(
 
     from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
     from magic_pdf.data.dataset import PymuDocDataset
-    from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
+    from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze, ModelSingleton
     from magic_pdf.config.enums import SupportedPdfParseMethod
+    from magic_pdf.libs.clean_memory import clean_memory
+    from magic_pdf.libs.config_reader import get_device
 
     # prepare env
     name_without_suff = os.path.basename(file_path).split(".")[0]
@@ -200,6 +207,16 @@ def parse_pdf(
 
     # dump middle json
     pipe_result.dump_middle_json(md_writer, f'{name_without_suff}_middle.json')
+
+    # clean up memory
+    clean_memory(get_device())
+
+    obj = ModelSingleton()
+    try:
+        del obj
+        gc.collect()
+    except Exception as e:
+        print(f"Exception: {type(e).__name__} - {e}")
 
     return content_list
 
@@ -295,8 +312,7 @@ def ollama_chat(prompt: str, ) -> str:
 # ==============================================================================
 # translate func
 def translate_table_content(content: Dict[str, Any]) -> None:
-    if 'table_caption' in content and not is_empty(
-            safe_strip(content['table_caption'])):
+    if 'table_caption' in content and not is_empty(content['table_caption']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -306,8 +322,7 @@ def translate_table_content(content: Dict[str, Any]) -> None:
         content['translated_table_caption'] = post_text_process(
             translated_table_caption)
 
-    if 'table_footnote' in content and not is_empty(
-            safe_strip(content['table_footnote'])):
+    if 'table_footnote' in content and not is_empty(content['table_footnote']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -319,8 +334,7 @@ def translate_table_content(content: Dict[str, Any]) -> None:
 
 
 def translate_image_content(content: Dict[str, Any]) -> None:
-    if 'img_caption' in content and not is_empty(
-            safe_strip(content['img_caption'])):
+    if 'img_caption' in content and not is_empty(content['img_caption']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -330,8 +344,7 @@ def translate_image_content(content: Dict[str, Any]) -> None:
         content['translated_img_caption'] = post_text_process(
             translated_img_caption)
 
-    if 'img_footnote' in content and not is_empty(
-            safe_strip(content['img_footnote'])):
+    if 'img_footnote' in content and not is_empty(content['img_footnote']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -344,7 +357,7 @@ def translate_image_content(content: Dict[str, Any]) -> None:
 
 def translate_text_content(content: Dict[str, Any]) -> None:
     translated_text = ''
-    if 'text' in content and not is_empty(safe_strip(content['text'])):
+    if 'text' in content and not is_empty(content['text']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -447,6 +460,7 @@ def save_transalted_content(
                 save_image(abs_img_path, sys_image_folder)
                 md_writer.write(
                     format_md_image_path(sys_image_folder, img_name) + "\n\n")
+                md_writer.write('-' * 8 + '\n\n')
 
             if 'translated_table_caption' in content:
                 translated_table_caption = content['translated_table_caption']
@@ -516,6 +530,7 @@ def save_summary_of_content(
 # file process func
 
 
+@time_it
 def process(
     file_path: str,
     output_dir: str,
@@ -685,6 +700,7 @@ if __name__ == '__main__':
     print(f'target language: {target_lang}')
 
     print(f'processing file: {os.path.basename(args.file_path)}')
+
     process(
         file_path=args.file_path,
         output_dir=output_dir,
