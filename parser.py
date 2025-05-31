@@ -127,17 +127,6 @@ class Content():
         setattr(self, key, value)
 
 
-def is_empty(text: str):
-    text = safe_strip(text)
-    if text is None:
-        return True
-    if len(text) == 0:
-        return True
-    if text == '[]':
-        return True
-    return False
-
-
 def post_text_process(text: str) -> str:
     # strip space around $
     p = r"\s*(\$)\s*"

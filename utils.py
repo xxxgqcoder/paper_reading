@@ -42,3 +42,14 @@ def run_once(func):
         return ret
 
     return wrapper
+
+
+def is_empty(text: str):
+    text = safe_strip(text)
+    if text is None:
+        return True
+    if len(text) == 0:
+        return True
+    if text == '[]':
+        return True
+    return False

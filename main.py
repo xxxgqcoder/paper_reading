@@ -14,8 +14,6 @@ from ollama import Client
 from parser import (
     parse_pdf,
     post_text_process,
-    is_empty,
-    safe_strip,
     Content,
     ContentType,
 )
@@ -23,6 +21,8 @@ from parser import (
 from utils import (
     save_image,
     time_it,
+    is_empty,
+    safe_strip,
 )
 
 
