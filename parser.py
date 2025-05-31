@@ -129,7 +129,7 @@ class Content():
 
 def post_text_process(text: str) -> str:
     # strip space around $
-    p = r"\s*(\$)\s*"
+    p = r" *(\$) *"
     text = re.sub(p, r"\1", text)
 
     return text
