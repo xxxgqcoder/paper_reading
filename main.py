@@ -251,7 +251,6 @@ def save_transalted_content(
             lines += text + line_breaker
 
         elif content.type == ContentType.EQUATION:
-            print(content.text)
             lines += content.text + line_breaker
 
         elif content.type == ContentType.IMAGE:
