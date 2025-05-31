@@ -574,6 +574,8 @@ def process(
     )
     md_writer = open(md_file_path, 'w')
 
+    md_writer.write(f'paper: {name_without_suff}' + '\n\n')
+
     # summary
     summary = summary_content(content_list=content_list)
     summary_save_path = os.path.join(output_dir, 'summary.txt')
