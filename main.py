@@ -4,70 +4,25 @@ import pickle
 import json
 import re
 import shutil
+import time
+import gc
 from io import TextIOWrapper
 from typing import Any, Dict
 
 from ollama import Client
 
+from parser import (
+    parse_pdf,
+    post_text_process,
+    is_empty,
+    is_valid_content,
+    safe_strip,
+)
 
-# ==============================================================================
-# parse pdf
-def safe_strip(raw: str) -> str:
-    if raw is None or len(raw) == 0:
-        return ''
-    raw = str(raw)
-    return raw.strip()
-
-
-def is_empty(text: str):
-    if text is None:
-        return True
-    text = text.strip()
-    if len(text) == 0:
-        return True
-    if text == '[]':
-        return True
-    return False
-
-
-def post_text_process(text: str) -> str:
-    # strip space around $
-    p = r"\s*(\$)\s*"
-    text = re.sub(p, r"\1", text)
-
-    return text
-
-
-def is_valid_content(content: Dict[str, Any]) -> bool:
-    """
-    There are corner cases where returned content dont contain expected keys 
-    or values are empty.
-
-    Returns:
-    - bool, true if content is valid.
-    """
-    # missing key
-    if 'type' not in content:
-        return False
-
-    # text / equation
-    if content['type'] in ['text', 'equation']:
-        return 'text' in content
-
-    # image
-    if content['type'] == 'image':
-        return 'img_path' in content and len(content['img_path']) > 0
-
-    # table
-    if content['type'] == 'table':
-        return 'table_body' in content
-
-    return True
-
-
-def save_image(src_path: str, dst_dir: str) -> None:
-    dst_path = os.path.join(dst_dir, os.path.basename(src_path))
-    shutil.copyfile(src_path, dst_path)
+from utils import (
+    save_image,
+    time_it,
+)
 
 
 def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
@@ -76,119 +31,6 @@ def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
     reformatted inserted image path for better display.
     """
     return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
-
-
-def parse_pdf(
-    file_path: str,
-    asset_dir: str,
-    magic_config_path: str,
-) -> list[Dict[str, Any]]:
-    """
-    Parse PDF content and return content list. The result is a list of json 
-    oject representing a pdf content block.
-    
-    Dict object key explanation:
-        - `img_caption`: the image caption.
-        - `img_footnote`:
-        - `img_path`: path to parsed image.
-        - `page_idx`: page index.
-        - `table_body`: table content in html format.
-        - `table_caption`: table caption.
-        - `table_footnote`:
-        - `text`: the block text content.
-        - `text_format`: used in latex forumla block.
-        - `text_level`: used in headline block.
-        - `type`: block type, can be one of 'equation', 'image', 'table', 'text'.
-    
-    Typical paper parsed content is organized by list of content block. Headlines
-    will stored in one separated block, with `text_level` = 1 while regular content
-    block's `text_level` key is missing. Headline blocks are followed by regular
-    content block, including `text`, `equation`, `table` and `image` (distinguished 
-    by key `type`). All captions are stored in each block's caption key, for 
-    example, caption of a parsed image is saved in `img_caption` key of the block.
-
-    Refer [MinerU API demo](https://mineru.readthedocs.io/en/latest/user_guide/usage/api.html) 
-    for more details.
-
-    Args:
-    - file_path: path to the pdf file
-    - asset_dir: folder for saving parsed assets.
-    - magic_config_path: magic pdf config path.
-
-    Returns:
-    - A list of parsed content block dict.
-    """
-    # NOTE: magic_pdf package uses singleton design and the model isntance is
-    # initialized when the module is imported, so postpone the import statement
-    # until parse method is called.
-    magic_config_path = os.path.abspath(magic_config_path)
-    os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
-    print(f'setting magic pdf config path to {magic_config_path}')
-
-    from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
-    from magic_pdf.data.dataset import PymuDocDataset
-    from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze
-    from magic_pdf.config.enums import SupportedPdfParseMethod
-
-    # prepare env
-    name_without_suff = os.path.basename(file_path).split(".")[0]
-    local_image_dir = os.path.join(asset_dir, "images")
-    local_md_dir = asset_dir
-    image_dir = os.path.basename(local_image_dir)
-    os.makedirs(local_image_dir, exist_ok=True)
-
-    image_writer = FileBasedDataWriter(local_image_dir)
-    md_writer = FileBasedDataWriter(local_md_dir)
-
-    # read bytes
-    reader = FileBasedDataReader("")
-    pdf_bytes = reader.read(file_path)
-    print(f"{file_path}: read bytes count: {len(pdf_bytes)}")
-
-    # process
-    ds = PymuDocDataset(pdf_bytes)
-
-    # inference
-    infer_result = ds.apply(doc_analyze,
-                            ds.classify() == SupportedPdfParseMethod.OCR)
-    pipe_result = infer_result.pipe_txt_mode(image_writer)
-
-    # draw model result on each page
-    infer_result.draw_model(
-        os.path.join(local_md_dir, f"{name_without_suff}_model.pdf"))
-
-    # get model inference result
-    model_inference_result = infer_result.get_infer_res()
-
-    # draw layout result on each page
-    pipe_result.draw_layout(
-        os.path.join(local_md_dir, f"{name_without_suff}_layout.pdf"))
-
-    # draw spans result on each page
-    pipe_result.draw_span(
-        os.path.join(local_md_dir, f"{name_without_suff}_spans.pdf"))
-
-    # get markdown content
-    md_content = pipe_result.get_markdown(image_dir)
-
-    # dump markdown
-    pipe_result.dump_md(md_writer, f"{name_without_suff}.md", image_dir)
-
-    # get content list content
-    content_list = pipe_result.get_content_list(image_dir)
-
-    # dump content list
-    pipe_result.dump_content_list(md_writer,
-                                  f"{name_without_suff}_content_list.json",
-                                  image_dir)
-
-    # get middle json
-    middle_json_content = pipe_result.get_middle_json()
-
-    # dump middle json
-    pipe_result.dump_middle_json(md_writer, f'{name_without_suff}_middle.json')
-
-    return content_list
 
 
 # ==============================================================================
@@ -282,8 +124,7 @@ def ollama_chat(prompt: str, ) -> str:
 # ==============================================================================
 # translate func
 def translate_table_content(content: Dict[str, Any]) -> None:
-    if 'table_caption' in content and not is_empty(
-            safe_strip(content['table_caption'])):
+    if 'table_caption' in content and not is_empty(content['table_caption']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -293,8 +134,7 @@ def translate_table_content(content: Dict[str, Any]) -> None:
         content['translated_table_caption'] = post_text_process(
             translated_table_caption)
 
-    if 'table_footnote' in content and not is_empty(
-            safe_strip(content['table_footnote'])):
+    if 'table_footnote' in content and not is_empty(content['table_footnote']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -306,8 +146,7 @@ def translate_table_content(content: Dict[str, Any]) -> None:
 
 
 def translate_image_content(content: Dict[str, Any]) -> None:
-    if 'img_caption' in content and not is_empty(
-            safe_strip(content['img_caption'])):
+    if 'img_caption' in content and not is_empty(content['img_caption']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -317,8 +156,7 @@ def translate_image_content(content: Dict[str, Any]) -> None:
         content['translated_img_caption'] = post_text_process(
             translated_img_caption)
 
-    if 'img_footnote' in content and not is_empty(
-            safe_strip(content['img_footnote'])):
+    if 'img_footnote' in content and not is_empty(content['img_footnote']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -331,7 +169,7 @@ def translate_image_content(content: Dict[str, Any]) -> None:
 
 def translate_text_content(content: Dict[str, Any]) -> None:
     translated_text = ''
-    if 'text' in content and not is_empty(safe_strip(content['text'])):
+    if 'text' in content and not is_empty(content['text']):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
@@ -342,6 +180,7 @@ def translate_text_content(content: Dict[str, Any]) -> None:
     content['translated_text'] = post_text_process(translated_text)
 
 
+@time_it
 def translate_content(content_list: list[Dict[str, Any]]):
     """
     Translate contents.
@@ -433,6 +272,7 @@ def save_transalted_content(
                 save_image(abs_img_path, sys_image_folder)
                 md_writer.write(
                     format_md_image_path(sys_image_folder, img_name) + "\n\n")
+                md_writer.write('-' * 8 + '\n\n')
 
             if 'translated_table_caption' in content:
                 translated_table_caption = content['translated_table_caption']
@@ -446,6 +286,7 @@ def save_transalted_content(
 # summary paper content
 
 
+@time_it
 def summary_content(content_list: list[Dict[str, Any]]) -> None:
     global summary_prompt, src_lang, target_lang
     print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
@@ -501,6 +342,7 @@ def save_summary_of_content(
 # file process func
 
 
+@time_it
 def process(
     file_path: str,
     output_dir: str,
@@ -543,6 +385,8 @@ def process(
         f'{name_without_suff}.md',
     )
     md_writer = open(md_file_path, 'w')
+
+    md_writer.write(f'paper: {name_without_suff}' + '\n\n')
 
     # summary
     summary = summary_content(content_list=content_list)
@@ -668,6 +512,8 @@ if __name__ == '__main__':
     target_lang = args.target_lang
     target_lang = lang_mapping[target_lang]
     print(f'target language: {target_lang}')
+
+    print(f'processing file: {os.path.basename(args.file_path)}')
 
     process(
         file_path=args.file_path,
