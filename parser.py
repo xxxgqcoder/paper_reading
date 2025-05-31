@@ -7,15 +7,23 @@ import json
 import pickle
 from typing import Dict, Any
 
+from strenum import StrEnum
+
 from utils import (
     time_it,
     safe_strip,
     run_once,
 )
-# ==============================================================================
+
+
+class ContentType(StrEnum):
+    TEXT = "text"
+    EQUATION = "equation"
+    IMAGE = "image"
+    TABLE = "table"
+
+
 # parse pdf
-
-
 class Content():
 
     def __init__(
@@ -29,6 +37,7 @@ class Content():
         """
         for k, v in kwargs.items():
             setattr(self, k, v)
+
         self.raw_content = raw_content
         # set attribute
         all_keys = [
@@ -53,6 +62,8 @@ class Content():
         if missing:
             print(f'keys found in raw content but not key list: {missing}')
 
+        self.type = ContentType(raw_content.get('type', 'unknown'))
+
     @run_once
     def is_valid(self, ) -> bool:
         """
@@ -63,31 +74,19 @@ class Content():
         - bool, true if content is valid.
         """
         if self.raw_content is None:
+            self.invalid_reason = 'missing raw content'
             return False
-        # missing key
-        if 'type' not in self.raw_content:
-            self.invalid_reason = "missing key: `type`"
-            return False
-
-        # text / equation
-        if self.raw_content['type'] in ['text', 'equation']:
-            if 'text' not in self.raw_content:
-                self.invalid_reason = "missing key: `text`"
-                return False
 
         # image
-        if self.raw_content['type'] == 'image':
-            if 'img_path' not in self.raw_content:
-                self.invalid_reason = "missing key: `img_path`"
-                return False
-            if len(self.raw_content['img_path']) < 1:
+        if self.type == ContentType.IMAGE:
+            if len(self.img_path) < 1:
                 self.invalid_reason = "img_path empty"
                 return False
 
         # table
-        if self.raw_content['type'] == 'table':
-            if 'table_body' not in self.raw_content:
-                self.invalid_reason = "missing key: `table_body`"
+        if self.type == ContentType.TABLE:
+            if len(self.table_body) < 1:
+                self.invalid_reason = "empty table body"
                 return False
 
         return True
@@ -98,23 +97,28 @@ class Content():
                 + f"invalid reason: {self.valid_reason}\n" \
                 + f"original content: {json.dumps(self.raw_content, indent=4)}"
 
-        if self.raw_content['type'] in ['text', 'equation']:
-            return self.raw_content['text']
+        if self.type == ContentType.TEXT or self.type == ContentType.EQUATION:
+            return self.get('text')
 
-        elif self.raw_content['type'] in ['image']:
+        elif self.type == ContentType.IMAGE:
             return 'content is image \n' \
-                + f"image path: {self.raw_content['img_path']} \n" \
-                + f"image caption: {self.raw_content['img_caption']} \n" \
-                + f"image footnote: {self.raw_content['img_footnote']} \n"
+                + f"image path: {self.get('img_path')} \n" \
+                + f"image caption: {self.get('img_caption')} \n" \
+                + f"image footnote: {self.get('img_footnote')} \n"
 
-        elif self.raw_content['type'] in ['table']:
+        elif self.type == ContentType.TABLE:
             return 'content is table \n' \
-                + f"table body: {self.raw_content['table_body']} \n" \
-                + f"table caption: {self.raw_content['table_caption']} \n" \
-                + f"table footnote: {self.raw_content['table_footnote']} \n"
+                + f"table body: {self.get('table_body')} \n" \
+                + f"table caption: {self.get('table_caption')} \n" \
+                + f"table footnote: {self.get('table_footnote')} \n"
 
         else:
             return f"unregnized content: {json.dumps(self.raw_content, indent=4)}"
+
+    def get(self, key: str) -> str:
+        if key not in self.__dict__:
+            return None
+        return self.__dict__[key]
 
 
 def is_empty(text: str):
