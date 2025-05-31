@@ -246,10 +246,10 @@ def save_transalted_content(
             text = content.get('translated_text')
             if content.text_level == 1:
                 text = '# ' + text
-            lines += text
+            lines += text + '\n\n'
 
         elif content.type == ContentType.EQUATION:
-            lines += content.text
+            lines += content.text + '\n\n'
 
         elif content.type == ContentType.IMAGE:
             # copy image
@@ -369,6 +369,12 @@ def process(
         asset_dir=output_dir,
         magic_config_path=magic_config_path,
     )
+
+    # save content list
+    pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
+    with open(pickle_content_path, 'rb') as f:
+        content_list = pickle.load(f)
+    content_list = [Content(content) for content in content_list]
 
     # md writer
     md_file_path = os.path.join(
