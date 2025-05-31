@@ -15,8 +15,9 @@ from parser import (
     parse_pdf,
     post_text_process,
     is_empty,
-    is_valid_content,
     safe_strip,
+    Content,
+    ContentType,
 )
 
 from utils import (
@@ -123,65 +124,64 @@ def ollama_chat(prompt: str, ) -> str:
 
 # ==============================================================================
 # translate func
-def translate_table_content(content: Dict[str, Any]) -> None:
-    if 'table_caption' in content and not is_empty(content['table_caption']):
+def translate_table_content(content: Content) -> None:
+    table_caption = content.table_caption
+    if not is_empty(table_caption):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
-            content=content['table_caption'],
+            content=table_caption,
         )
         translated_table_caption = ollama_chat(prompt=formatted_prompt)
-        content['translated_table_caption'] = post_text_process(
-            translated_table_caption)
+        content.set('translated_table_caption', translated_table_caption)
 
-    if 'table_footnote' in content and not is_empty(content['table_footnote']):
+    table_footnote = content.table_footnote
+    if not is_empty(table_footnote):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
-            content=content['table_footnote'],
+            content=table_footnote,
         )
         translated_table_footnote = ollama_chat(prompt=formatted_prompt)
-        content['translated_table_footnote'] = post_text_process(
-            translated_table_footnote)
+        content.set('table_footnote', translated_table_footnote)
 
 
-def translate_image_content(content: Dict[str, Any]) -> None:
-    if 'img_caption' in content and not is_empty(content['img_caption']):
+def translate_image_content(content: Content) -> None:
+    img_caption = content.img_caption
+    if not is_empty(img_caption):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
-            content=content['img_caption'],
+            content=img_caption,
         )
         translated_img_caption = ollama_chat(prompt=formatted_prompt)
-        content['translated_img_caption'] = post_text_process(
-            translated_img_caption)
+        content.set('translated_img_caption', translated_img_caption)
 
-    if 'img_footnote' in content and not is_empty(content['img_footnote']):
+    img_footnote = content.img_footnote
+    if not is_empty(img_footnote):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
-            content=content['img_footnote'],
+            content=img_footnote,
         )
         translated_img_footnote = ollama_chat(prompt=formatted_prompt)
-        content['translated_img_footnote'] = post_text_process(
-            translated_img_footnote)
+        content.set('translated_img_footnote', translated_img_footnote)
 
 
-def translate_text_content(content: Dict[str, Any]) -> None:
-    translated_text = ''
-    if 'text' in content and not is_empty(content['text']):
+def translate_text_content(content: Content) -> None:
+    text = content.text
+    if not is_empty(text):
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
             target_lang=target_lang,
-            content=content['text'],
+            content=text,
         )
         translated_text = ollama_chat(prompt=formatted_prompt)
-
-    content['translated_text'] = post_text_process(translated_text)
+        content.set('translated_text', translated_text)
 
 
 @time_it
-def translate_content(content_list: list[Dict[str, Any]]):
+def translate_content(content_list: list[Content]):
     """
     Translate contents.
     Args:
@@ -191,18 +191,20 @@ def translate_content(content_list: list[Dict[str, Any]]):
 
     for i, content in enumerate(content_list):
         print(f'processing content {i}')
-        if content['type'] == 'table':
+        if content.type == ContentType.TABLE:
             translate_table_content(content)
 
-        elif content['type'] == 'image':
+        elif content.type == ContentType.IMAGE:
             translate_image_content(content)
 
-        elif content['type'] == 'text':
+        elif content.type == ContentType.TEXT:
             translate_text_content(content)
         else:
-            print(f'unrecognized content: {json.dumps(content, indent=4)}')
+            print(
+                f'unrecognized content: {json.dumps(content.__dict__, indent=4)}'
+            )
 
-        print(json.dumps(content, indent=4, ensure_ascii=False))
+        print(json.dumps(content.__dict__, indent=4, ensure_ascii=False))
         print('=' * 128)
 
     translated_pickle_content_path = os.path.join(
@@ -216,7 +218,7 @@ def translate_content(content_list: list[Dict[str, Any]]):
 
 def save_transalted_content(
     md_writer: TextIOWrapper,
-    content_list: list[Dict[str, Any]],
+    content_list: list[Content],
     **kwargs,
 ) -> None:
     """
@@ -224,95 +226,96 @@ def save_transalted_content(
     - content_list: content list, represented by a list of dict.
     - kwargs: should contain `sys_image_folder`.
     """
-    sys_image_folder = kwargs.get('sys_image_folder',
-                                  os.path.expanduser("~/Pictures"))
+    sys_image_folder = kwargs.get(
+        'sys_image_folder',
+        os.path.expanduser("~/Pictures"),
+    )
     print(f'using {sys_image_folder} as sys image save folder')
 
-    md_writer.write('# ' + '=' * 8 + '  Translated content  ' + '=' * 8 +
-                    '\n\n')
+    md_writer.write('# ' + '=' * 8 \
+                    + '  Translated content  ' \
+                    + '=' * 8 + '\n\n')
 
     for content in content_list:
-        if not is_valid_content(content):
-            print(f'invalid block: {json.dumps(content, indent=4)}')
+        lines = ''
+        if not content.is_valid():
+            print(f'invalid block: {json.dumps(content.__dict__, indent=4)}')
             continue
 
-        if content['type'] == 'text':
-            text = content['translated_text']
-            if 'text_level' in content and content['text_level'] == 1:
+        if content.type == ContentType.TEXT:
+            text = content.get('translated_text')
+            if content.text_level == 1:
                 text = '# ' + text
-            md_writer.write(text + "\n\n")
+            lines += text
 
-        elif content['type'] == 'equation':
-            text = content['text']
-            md_writer.write(text + "\n\n")
+        elif content.type == ContentType.EQUATION:
+            lines += content.text
 
-        elif content['type'] == 'image':
+        elif content.type == ContentType.IMAGE:
             # copy image
-            abs_img_path = os.path.join(output_dir, content['img_path'])
+            abs_img_path = os.path.join(output_dir, content.img_path)
             img_name = os.path.basename(abs_img_path)
             save_image(abs_img_path, sys_image_folder)
-            md_writer.write(
-                format_md_image_path(sys_image_folder, img_name) + "\n\n")
+            lines += format_md_image_path(sys_image_folder, img_name)
+            lines += '\n\n'
 
             # image caption
-            img_caption = content['translated_img_caption']
-            md_writer.write(img_caption + "\n\n")
+            img_caption = content.get('translated_img_caption')
+            lines += img_caption + '\n\n'
 
-            if 'translated_img_footnote' in content:
-                img_footnote = content['translated_img_footnote']
-                md_writer.write(img_footnote + "\n\n")
+            # image footnote
+            img_footnote = content.get('translated_img_footnote')
+            lines += img_footnote + '\n\n'
 
-        elif content['type'] == 'table':
-            table_body = content['table_body']
-            md_writer.write(table_body + "\n\n")
+        elif content.type == ContentType.TABLE:
+            table_body = content.table_body
+            lines += table_body + '\n\n'
 
-            if 'img_path' in content and len(content['img_path']) > 0:
-                abs_img_path = os.path.join(output_dir, content['img_path'])
+            img_path = content.img_path
+            if len(img_path) > 0:
+                abs_img_path = os.path.join(output_dir, img_path)
                 img_name = os.path.basename(abs_img_path)
                 save_image(abs_img_path, sys_image_folder)
-                md_writer.write(
-                    format_md_image_path(sys_image_folder, img_name) + "\n\n")
-                md_writer.write('-' * 8 + '\n\n')
 
-            if 'translated_table_caption' in content:
-                translated_table_caption = content['translated_table_caption']
-                md_writer.write(translated_table_caption + "\n\n")
+                lines += format_md_image_path(sys_image_folder,
+                                              img_name) + '\n\n'
+                lines += '-' * 8 + '\n\n'
+
+            caption = content.get('translated_table_caption')
+            lines += caption + "\n\n"
 
         else:
-            print(f'unrecognized content: {json.dumps(content, indent=4)}')
+            print(
+                f'unrecognized content: {json.dumps(content.__dict__, indent=4)}'
+            )
 
-
-# ==============================================================================
-# summary paper content
+        lines = post_text_process(lines)
+        md_writer.write(lines)
 
 
 @time_it
-def summary_content(content_list: list[Dict[str, Any]]) -> None:
+def summary_content(content_list: list[Content]) -> None:
     global summary_prompt, src_lang, target_lang
     print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
 
     full_content = ''
     for content in content_list:
-        if content['type'] == 'text':
-            text = content['text']
-            if 'text_level' in content and content['text_level'] == 1:
+        if content.type == ContentType.TEXT:
+            text = content.text
+            if content.text_level == 1:
                 text = '# ' + text
             full_content += text + '\n\n'
 
-        elif content['type'] == 'equation':
-            text = content['text']
+        elif content.type == ContentType.EQUATION:
+            text = content.text
             full_content += text + '\n\n'
 
-        elif content['type'] == 'image':
-            full_content += safe_strip(content['img_caption']) + '\n\n'
+        elif content.type == ContentType.IMAGE:
+            full_content += str(content.img_caption) + '\n\n'
+            full_content += str(content.img_footnote) + '\n\n'
 
-            if 'img_footnote' in content:
-                full_content += safe_strip(content['img_footnote']) + '\n\n'
-
-        elif content['type'] == 'table':
-
-            if 'table_caption' in content:
-                full_content += safe_strip(content['table_caption']) + '\n\n'
+        elif content.type == ContentType.TABLE:
+            full_content += str(content.table_caption) + '\n\n'
 
         else:
             print(f'unrecognized content: {json.dumps(content, indent=4)}')
@@ -336,10 +339,6 @@ def save_summary_of_content(
     md_writer.write('# ' + '=' * 8 + '  Paper summary  ' + '=' * 8 + '\n\n')
     md_writer.write(summary + '\n\n')
     md_writer.write('-' * 8 + '\n\n')
-
-
-# ==============================================================================
-# file process func
 
 
 @time_it
@@ -370,14 +369,6 @@ def process(
         asset_dir=output_dir,
         magic_config_path=magic_config_path,
     )
-    pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    with open(pickle_content_path, 'wb') as f:
-        pickle.dump(content_list, f)
-        print(f'save parsed content list to {pickle_content_path}')
-
-    # pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    # with open(pickle_content_path, 'rb') as f:
-    #     content_list = pickle.load(f)
 
     # md writer
     md_file_path = os.path.join(
@@ -420,50 +411,34 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Example of argparse usage.")
 
     parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument(
-        "--output_dir",
-        help="path to assets folder",
-        default="./parsed_asset",
-    )
-    parser.add_argument(
-        "--ollama_host",
-        help="ollama host",
-        default="http://127.0.0.1:11434",
-    )
-    parser.add_argument(
-        "--ollama_model",
-        help="ollama model name",
-        default="qwen3:30b-a3b",
-    )
-    parser.add_argument(
-        "--magic_config_path",
-        help="magic pdf config path",
-        default="./magic-pdf.json",
-    )
+    parser.add_argument("--output_dir",
+                        help="path to assets folder",
+                        default="./parsed_asset")
+    parser.add_argument("--ollama_host",
+                        help="ollama host",
+                        default="http://127.0.0.1:11434")
+    parser.add_argument("--ollama_model",
+                        help="ollama model name",
+                        default="qwen3:30b-a3b")
+    parser.add_argument("--magic_config_path",
+                        help="magic pdf config path",
+                        default="./magic-pdf.json")
 
-    parser.add_argument(
-        "--sys_image_folder",
-        help="final image save folder",
-        default="./md_images",
-    )
+    parser.add_argument("--sys_image_folder",
+                        help="final image save folder",
+                        default="./md_images")
 
-    parser.add_argument(
-        "--final_md_file_save_dir",
-        help="final md file save folder",
-        default=".",
-    )
+    parser.add_argument("--final_md_file_save_dir",
+                        help="final md file save folder",
+                        default=".")
 
-    parser.add_argument(
-        "--src_lang",
-        help="source paper language",
-        default="en",
-    )
+    parser.add_argument("--src_lang",
+                        help="source paper language",
+                        default="en")
 
-    parser.add_argument(
-        "--target_lang",
-        help="translate target language",
-        default="zh",
-    )
+    parser.add_argument("--target_lang",
+                        help="translate target language",
+                        default="zh")
 
     args = parser.parse_args()
 
