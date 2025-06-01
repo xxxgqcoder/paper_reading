@@ -18,8 +18,6 @@ from strenum import StrEnum
 
 line_breaker = '\n\n\n\n'
 
-line_breaker = '\n\n\n\n'
-
 
 # ==============================================================================
 # util funcs
