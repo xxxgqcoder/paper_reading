@@ -18,6 +18,29 @@ from strenum import StrEnum
 
 line_breaker = '\n\n\n\n'
 
+# global variables
+ollama_host = 'http://127.0.0.1:11434'
+ollama_model = 'qwen3:30b-a3b'
+
+lang_mapping = {'en': "英语", 'zh': "中文"}
+gen_conf = {
+    'temperature': 0.1,
+    'top_p': 0.3,
+    'presence_penalty': 0.4,
+    'frequency_penalty': 0.7,
+}
+translate_prompt = """
+<no_think>你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+
+{content}
+"""
+
+summary_prompt = """
+<no_think>你是一个论文助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容包括论文主要创新点。
+
+{content}
+"""
+
 
 # ==============================================================================
 # util funcs
@@ -761,38 +784,13 @@ if __name__ == '__main__':
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
     print(f'final md save folder: {final_md_file_save_dir}')
 
-    # global variables
-    ollama_host = 'http://127.0.0.1:11434'
-    ollama_model = 'qwen3:30b-a3b'
-
-    lang_mapping = {'en': "英语", 'zh': "中文"}
-    gen_conf = {
-        'temperature': 0.1,
-        'top_p': 0.3,
-        'presence_penalty': 0.4,
-        'frequency_penalty': 0.7,
-    }
-    translate_prompt = """
-    <no_think>你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
-
-    {content}
-    """
-
-    summary_prompt = """
-    <no_think>你是一个论文助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容包括论文主要创新点。
-
-    {content}
-    """
-
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
 
-    src_lang = args.src_lang
-    src_lang = lang_mapping[src_lang]
+    src_lang = lang_mapping[args.src_lang]
     print(f'source language: {src_lang}')
 
-    target_lang = args.target_lang
-    target_lang = lang_mapping[target_lang]
+    target_lang = lang_mapping[args.target_lang]
     print(f'target language: {target_lang}')
 
     print(f'processing file: {os.path.basename(args.file_path)}')
