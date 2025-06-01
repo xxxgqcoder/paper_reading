@@ -736,6 +736,13 @@ def summary_content(
     md_writer.write('-' * 8 + line_breaker)
 
 
+step_func = {
+    'summary': summary_content,
+    'translate': translate_content,
+    'original': save_parsed_content,
+}
+
+
 @time_it
 def process(
     file_path: str,
@@ -784,27 +791,17 @@ def process(
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
     # summary
+    kwargs = {
+        'sys_image_folder': sys_image_folder,
+    }
     for step in steps:
         print(f'processing step {step}')
-        if step == 'summary':
-            summary_content(
-                md_writer=md_writer,
-                content_list=content_list,
-            )
-        elif step == 'translate':
-            # translate content
-            translate_content(
-                md_writer=md_writer,
-                content_list=content_list,
-                sys_image_folder=sys_image_folder,
-            )
-        elif step == 'original':
-            # save parsed content
-            save_parsed_content(
-                md_writer=md_writer,
-                content_list=content_list,
-                sys_image_folder=sys_image_folder,
-            )
+        func = step_func[step]
+        func(
+            md_writer=md_writer,
+            content_list=content_list,
+            **kwargs,
+        )
 
     md_writer.close()
     print(f'parsed markdown saved to {md_file_path}')
