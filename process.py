@@ -517,7 +517,7 @@ def translate_content(content_list: list[Content]):
         )
 
 
-def save_transalted_content(
+def save_translated_content(
     md_writer: TextIOWrapper,
     content_list: list[Content],
     **kwargs,
@@ -704,7 +704,7 @@ def process(
         pickle.dump(content_list, f)
     print(f'save translated content list to {translated_pickle_content_path}')
 
-    save_transalted_content(
+    save_translated_content(
         md_writer=md_writer,
         content_list=content_list,
         sys_image_folder=sys_image_folder,
