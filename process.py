@@ -662,6 +662,7 @@ def translate_content(
 
         lines = post_text_process(lines)
         md_writer.write(lines)
+        md_writer.flush()
 
     # save pickle result
     translated_pickle_content_path = os.path.join(
@@ -734,6 +735,7 @@ def summary_content(
                     line_breaker)
     md_writer.write(summary + line_breaker)
     md_writer.write('-' * 8 + line_breaker)
+    md_writer.flush()
 
 
 step_func = {
