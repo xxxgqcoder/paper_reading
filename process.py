@@ -744,6 +744,7 @@ def process(
     magic_config_path: str,
     sys_image_folder: str,
     final_md_file_save_dir: str,
+    steps: list[str] = ['summary', 'translate'],
 ) -> None:
     """
     Process pdf file
@@ -755,6 +756,8 @@ def process(
     - sys_image_folder: image save folder.
     - final_md_file_save_dir: folder for saving final md file.
     """
+    print(f'processing started, required steps: {steps}')
+
     os.makedirs(output_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).split('.')[0]
     print(f'file name witout out suffix: {name_without_suff}')
@@ -781,25 +784,28 @@ def process(
 
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
-    # # summary
-    # summary_content(
-    #     md_writer=md_writer,
-    #     content_list=content_list,
-    # )
-
-    # # translate content
-    # translate_content(
-    #     md_writer=md_writer,
-    #     content_list=content_list,
-    #     sys_image_folder=sys_image_folder,
-    # )
-
-    # save parsed content
-    save_parsed_content(
-        md_writer=md_writer,
-        content_list=content_list,
-        sys_image_folder=sys_image_folder,
-    )
+    # summary
+    for step in steps:
+        print(f'processing step {step}')
+        if step == 'summary':
+            summary_content(
+                md_writer=md_writer,
+                content_list=content_list,
+            )
+        elif step == 'translate':
+            # translate content
+            translate_content(
+                md_writer=md_writer,
+                content_list=content_list,
+                sys_image_folder=sys_image_folder,
+            )
+        elif step == 'original':
+            # save parsed content
+            save_parsed_content(
+                md_writer=md_writer,
+                content_list=content_list,
+                sys_image_folder=sys_image_folder,
+            )
 
     md_writer.close()
     print(f'parsed markdown saved to {md_file_path}')
@@ -838,6 +844,10 @@ if __name__ == '__main__':
                         help="translate target language",
                         default="zh")
 
+    parser.add_argument("--steps",
+                        help="required steps",
+                        default="summary,translate,original")
+
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)
@@ -869,4 +879,5 @@ if __name__ == '__main__':
         magic_config_path=magic_config_path,
         sys_image_folder=sys_image_folder,
         final_md_file_save_dir=final_md_file_save_dir,
+        steps=args.steps.split(','),
     )
