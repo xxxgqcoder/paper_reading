@@ -6,7 +6,10 @@ echo "working directory $(pwd)"
 
 
 
-file_path="/Users/xcoder/obsidian/Profession/attachments/Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.pdf"
+# file_path="/Users/xcoder/aDrive/books/computer basic/Introduction to Algorithms (dragged).pdf"
+# file_path="/Users/xcoder/obsidian/Profession/attachments/Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.pdf"
+# file_path="/Users/xcoder/obsidian/Profession/attachments/REACT- SYNERGIZING REASONING AND ACTING IN LANGUAGE MODELS.pdf"
+file_path='/Users/xcoder/obsidian/Profession/attachments/ROFORMER ENHANCED TRANSFORMER WITH ROTARY POSITION EMBEDDING.pdf'
 output_dir='./parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
@@ -16,7 +19,7 @@ ollama_host='http://127.0.0.1:11434'
 ollama_model='qwen3:30b-a3b'
 
 
-python main.py \
+python process.py \
     --file_path="${file_path}" \
     --output_dir="${output_dir}" \
     --sys_image_folder="${sys_image_folder}" \

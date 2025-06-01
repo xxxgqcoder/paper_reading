@@ -6,7 +6,7 @@ The script first use `MinerU` to parse pdf paper, then call local ollama to summ
 
 # Usage 
 ```shell
-python main.py \
+python process.py \
     --file_path="${file_path}" \
     --output_dir="${output_dir}" \
     --sys_image_folder="${sys_image_folder}" \
