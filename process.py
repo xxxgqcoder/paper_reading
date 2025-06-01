@@ -97,6 +97,14 @@ def is_empty(text: str):
     return False
 
 
+def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
+    """
+    md image can only be corrct displayed when saved to same folder of the md file,
+    reformatted inserted image path for better display.
+    """
+    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
+
+
 # ==============================================================================
 # parser
 class ContentType(StrEnum):
@@ -348,15 +356,6 @@ def parse_pdf(
         print(f"Exception: {type(e).__name__} - {e}")
 
     return [Content(raw_content=content) for content in content_list]
-
-
-# ==============================================================================
-def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
-    """
-    md image can only be corrct displayed when saved to same folder of the md file,
-    reformatted inserted image path for better display.
-    """
-    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
 
 
 # ==============================================================================
