@@ -797,7 +797,7 @@ def process(
         'sys_image_folder': sys_image_folder,
     }
     for step in steps:
-        print(f'processing step {step}')
+        print(f'processing step: {step}')
         func = step_func[step]
         func(
             md_writer=md_writer,
