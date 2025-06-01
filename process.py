@@ -40,6 +40,7 @@ summary_prompt = """
 
 {content}
 """
+max_summary_token_num = 128 * 1024
 
 
 # ==============================================================================
@@ -633,6 +634,14 @@ def summary_content(
 
         else:
             print(f'unrecognized content: {json.dumps(content, indent=4)}')
+
+    print(f'full content bytes: {len(full_content)}')
+    token_multiplier = 1.5
+    max_byte_num = int(max_summary_token_num * token_multiplier)
+    full_content = full_content[:max_byte_num]
+    print(
+        f'truncated content by {max_byte_num}, token estimate multiplier: {token_multiplier}'
+    )
 
     formatted_promt = summary_prompt.format(
         src_lang=src_lang,
