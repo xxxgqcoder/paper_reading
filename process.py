@@ -6,6 +6,10 @@ import re
 import shutil
 import time
 import gc
+import time
+import os
+import shutil
+
 from io import TextIOWrapper
 from typing import Any, Dict
 
@@ -26,6 +30,63 @@ from utils import (
 )
 
 line_breaker = '\n\n\n\n'
+
+
+# ==============================================================================
+# util funcs
+def time_it(func):
+
+    def wrapper(*kargs, **kwargs):
+        begin = time.time_ns()
+        ret = func(*kargs, **kwargs)
+        elapse = (time.time_ns() - begin) // 1000000
+        print(
+            f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000)//1000}sec {elapse%60000%1000}ms to finish"
+        )
+
+        return ret
+
+    return wrapper
+
+
+def save_image(src_path: str, dst_dir: str) -> None:
+    dst_path = os.path.join(dst_dir, os.path.basename(src_path))
+    shutil.copyfile(src_path, dst_path)
+
+
+def safe_strip(raw: str) -> str:
+    if raw is None or len(raw) == 0:
+        return ''
+    raw = str(raw)
+    return raw.strip()
+
+
+def run_once(func):
+    has_run = False
+    ret = None
+
+    def wrapper(*args, **kwargs):
+        nonlocal has_run, ret
+        if not has_run:
+            has_run = True
+            ret = func(*args, **kwargs)
+        return ret
+
+    return wrapper
+
+
+def is_empty(text: str):
+    text = safe_strip(text)
+    if text is None:
+        return True
+    if len(text) == 0:
+        return True
+    if text == '[]':
+        return True
+    return False
+
+
+# ==============================================================================
 
 
 def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
