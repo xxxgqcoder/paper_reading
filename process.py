@@ -40,7 +40,7 @@ summary_prompt = """
 
 {content}
 """
-max_summary_token_num = 128 * 1024
+max_summary_token_num = 80 * 1024
 
 
 # ==============================================================================
@@ -712,7 +712,7 @@ def summary_content(
     max_byte_num = int(max_summary_token_num * token_multiplier)
     full_content = full_content[:max_byte_num]
     print(
-        f'truncated content by {max_byte_num}, token estimate multiplier: {token_multiplier}'
+        f'truncated content by {max_byte_num}, max token num: {max_summary_token_num}, token estimate multiplier: {token_multiplier}'
     )
 
     formatted_promt = summary_prompt.format(
@@ -777,11 +777,11 @@ def process(
         magic_config_path=magic_config_path,
     )
 
-    # save content list
-    pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    with open(pickle_content_path, 'rb') as f:
-        content_list = pickle.load(f)
-    content_list = [Content(content) for content in content_list]
+    # # load parsed content
+    # pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
+    # with open(pickle_content_path, 'rb') as f:
+    #     content_list = pickle.load(f)
+    # content_list = [Content(raw_content=content) for content in content_list]
 
     # md writer
     md_file_path = os.path.join(
