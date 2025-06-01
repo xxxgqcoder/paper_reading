@@ -326,7 +326,6 @@ def parse_pdf(
     return [Content(raw_content=content) for content in content_list]
 
 
-
 # ==============================================================================
 def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
     """
