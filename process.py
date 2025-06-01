@@ -601,8 +601,14 @@ def translate_content(
         )
 
 
+# ==============================================================================
+# summary func
 @time_it
-def summary_content(content_list: list[Content]) -> None:
+def summary_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    **kwargs,
+) -> None:
     global summary_prompt, src_lang, target_lang
     print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
 
@@ -636,14 +642,14 @@ def summary_content(content_list: list[Content]) -> None:
     print(f'formatted prompt: {formatted_promt}')
 
     summary = ollama_chat(prompt=formatted_promt)
-    return summary
+    print(f'content summary: {summary}')
 
+    summary_save_path = os.path.join(output_dir, 'summary.txt')
+    with open(summary_save_path, 'w') as f:
+        f.write(summary)
+        print(f'summary saved to {summary_save_path}')
 
-def save_summary_of_content(
-    md_writer: TextIOWrapper,
-    summary: str,
-    **kwargs,
-):
+    # save
     md_writer.write('# ' + '=' * 8 + '  Paper summary  ' + '=' * 8 +
                     line_breaker)
     md_writer.write(summary + line_breaker)
@@ -695,20 +701,14 @@ def process(
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
     # summary
-    summary = summary_content(content_list=content_list)
-    summary_save_path = os.path.join(output_dir, 'summary.txt')
-    with open(summary_save_path, 'w') as f:
-        f.write(summary)
-        print(f'summary saved to {summary_save_path}')
+    summary_content(md_writer=md_writer, content_list=content_list)
 
-    save_summary_of_content(md_writer=md_writer, summary=summary)
-
-    # translate content
-    translate_content(
-        md_writer=md_writer,
-        content_list=content_list,
-        sys_image_folder=sys_image_folder,
-    )
+    # # translate content
+    # translate_content(
+    #     md_writer=md_writer,
+    #     content_list=content_list,
+    #     sys_image_folder=sys_image_folder,
+    # )
 
     md_writer.close()
     print(f'parsed markdown saved to {md_file_path}')
