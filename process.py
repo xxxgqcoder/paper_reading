@@ -505,22 +505,30 @@ def translate_text_content(content: Content) -> None:
 
 
 @time_it
-def translate_content(content_list: list[Content]):
+def translate_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    **kwargs,
+):
     """
     Translate contents.
     Args:
     - content_list: a list of content.
     """
+    sys_image_folder = kwargs.get(
+        'sys_image_folder',
+        os.path.expanduser("~/Pictures"),
+    )
+    print(f'using {sys_image_folder} as sys image save folder')
+
     print(f'total {len(content_list)} contents')
 
     for i, content in enumerate(content_list):
         print(f'processing content {i}')
         if content.type == ContentType.TABLE:
             translate_table_content(content)
-
         elif content.type == ContentType.IMAGE:
             translate_image_content(content)
-
         elif content.type == ContentType.TEXT:
             translate_text_content(content)
         else:
@@ -531,36 +539,7 @@ def translate_content(content_list: list[Content]):
         print(json.dumps(content.__dict__, indent=4, ensure_ascii=False))
         print('=' * 128)
 
-    translated_pickle_content_path = os.path.join(
-        output_dir, 'translated_content_list.pickle')
-    with open(translated_pickle_content_path, 'wb') as f:
-        pickle.dump(content_list, f)
-        print(
-            f'save translated  content list to {translated_pickle_content_path}'
-        )
-
-
-def save_translated_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    **kwargs,
-) -> None:
-    """
-    Args:
-    - content_list: content list, represented by a list of dict.
-    - kwargs: should contain `sys_image_folder`.
-    """
-    sys_image_folder = kwargs.get(
-        'sys_image_folder',
-        os.path.expanduser("~/Pictures"),
-    )
-    print(f'using {sys_image_folder} as sys image save folder')
-
-    md_writer.write('# ' + '=' * 8 \
-                    + '  Translated content  ' \
-                    + '=' * 8 + line_breaker)
-
-    for content in content_list:
+        # save translated content
         lines = ''
         if not content.is_valid():
             print(f'invalid block: {json.dumps(content.__dict__, indent=4)}')
@@ -606,14 +585,20 @@ def save_translated_content(
 
             caption = content.get('translated_table_caption')
             lines += caption + line_breaker
-
         else:
-            print(
-                f'unrecognized content: {json.dumps(content.__dict__, indent=4)}'
-            )
+            pass
 
         lines = post_text_process(lines)
         md_writer.write(lines)
+
+    # save pickle result
+    translated_pickle_content_path = os.path.join(
+        output_dir, 'translated_content_list.pickle')
+    with open(translated_pickle_content_path, 'wb') as f:
+        pickle.dump(content_list, f)
+        print(
+            f'save translated  content list to {translated_pickle_content_path}'
+        )
 
 
 @time_it
@@ -719,15 +704,7 @@ def process(
     save_summary_of_content(md_writer=md_writer, summary=summary)
 
     # translate content
-    translate_content(content_list=content_list)
-
-    translated_pickle_content_path = os.path.join(
-        output_dir, 'translated_content_list.pickle')
-    with open(translated_pickle_content_path, 'wb') as f:
-        pickle.dump(content_list, f)
-    print(f'save translated content list to {translated_pickle_content_path}')
-
-    save_translated_content(
+    translate_content(
         md_writer=md_writer,
         content_list=content_list,
         sys_image_folder=sys_image_folder,
