@@ -155,7 +155,6 @@ class Content():
 
         self.type = ContentType(raw_content.get('type', 'unknown'))
 
-    @run_once
     def is_valid(self, ) -> bool:
         """
         There are corner cases where returned content dont contain expected keys 
