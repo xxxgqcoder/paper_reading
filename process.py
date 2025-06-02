@@ -18,6 +18,30 @@ from strenum import StrEnum
 
 line_breaker = '\n\n\n\n'
 
+# global variables
+ollama_host = 'http://127.0.0.1:11434'
+ollama_model = 'qwen3:30b-a3b'
+
+lang_mapping = {'en': "英语", 'zh': "中文"}
+gen_conf = {
+    'temperature': 0.1,
+    'top_p': 0.3,
+    'presence_penalty': 0.4,
+    'frequency_penalty': 0.7,
+}
+translate_prompt = """
+<no_think>你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+
+{content}
+"""
+
+summary_prompt = """
+<no_think>你是一个论文助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容包括论文主要创新点。
+
+{content}
+"""
+max_summary_token_num = 80 * 1024
+
 
 # ==============================================================================
 # util funcs
@@ -71,6 +95,14 @@ def is_empty(text: str):
     if text == '[]':
         return True
     return False
+
+
+def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
+    """
+    md image can only be corrct displayed when saved to same folder of the md file,
+    reformatted inserted image path for better display.
+    """
+    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
 
 
 # ==============================================================================
@@ -327,15 +359,6 @@ def parse_pdf(
 
 
 # ==============================================================================
-def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
-    """
-    md image can only be corrct displayed when saved to same folder of the md file,
-    reformatted inserted image path for better display.
-    """
-    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
-
-
-# ==============================================================================
 # ollama interface
 the_ollama_client = None
 
@@ -424,6 +447,78 @@ def ollama_chat(prompt: str, ) -> str:
 
 
 # ==============================================================================
+# save parsed content
+def save_parsed_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    **kwargs,
+) -> None:
+    sys_image_folder = kwargs.get(
+        'sys_image_folder',
+        os.path.expanduser("~/Pictures"),
+    )
+    print(f'using {sys_image_folder} as sys image save folder')
+
+    print(f'total {len(content_list)} contents')
+
+    md_writer.write('# ' + '=' * 8 + '  Original content  ' + '=' * 8 +
+                    line_breaker)
+
+    for i, content in enumerate(content_list):
+        print(f'processing content {i}')
+
+        lines = ''
+        if not content.is_valid():
+            print(f'invalid block: {json.dumps(content.__dict__, indent=4)}')
+            continue
+
+        if content.type == ContentType.TEXT:
+            text = content.get('text')
+            if content.text_level == 1:
+                text = '# ' + text
+            lines += text + line_breaker
+
+        elif content.type == ContentType.EQUATION:
+            lines += content.text + line_breaker
+
+        elif content.type == ContentType.IMAGE:
+            # copy image
+            abs_img_path = os.path.join(output_dir, content.img_path)
+            img_name = os.path.basename(abs_img_path)
+            save_image(abs_img_path, sys_image_folder)
+
+            lines += format_md_image_path(sys_image_folder, img_name)
+            lines += line_breaker
+
+            # image caption
+            lines += str(content.img_caption) + line_breaker
+
+            # image footnote
+            lines += str(content.img_footnote) + line_breaker
+
+        elif content.type == ContentType.TABLE:
+            table_body = content.table_body
+            lines += table_body + line_breaker
+
+            img_path = content.img_path
+            if len(img_path) > 0:
+                abs_img_path = os.path.join(output_dir, img_path)
+                img_name = os.path.basename(abs_img_path)
+                save_image(abs_img_path, sys_image_folder)
+
+                lines += format_md_image_path(sys_image_folder, img_name)
+                lines += '-' * 8 + line_breaker
+
+            lines += str(content.table_caption) + line_breaker
+        else:
+            pass
+
+        lines = post_text_process(lines)
+        md_writer.write(lines)
+        md_writer.flush()
+
+
+# ==============================================================================
 # translate func
 def translate_table_content(content: Content) -> None:
     table_caption = content.table_caption
@@ -482,22 +577,30 @@ def translate_text_content(content: Content) -> None:
 
 
 @time_it
-def translate_content(content_list: list[Content]):
+def translate_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    **kwargs,
+):
     """
     Translate contents.
     Args:
     - content_list: a list of content.
     """
+    sys_image_folder = kwargs.get(
+        'sys_image_folder',
+        os.path.expanduser("~/Pictures"),
+    )
+    print(f'using {sys_image_folder} as sys image save folder')
+
     print(f'total {len(content_list)} contents')
 
     for i, content in enumerate(content_list):
         print(f'processing content {i}')
         if content.type == ContentType.TABLE:
             translate_table_content(content)
-
         elif content.type == ContentType.IMAGE:
             translate_image_content(content)
-
         elif content.type == ContentType.TEXT:
             translate_text_content(content)
         else:
@@ -508,36 +611,7 @@ def translate_content(content_list: list[Content]):
         print(json.dumps(content.__dict__, indent=4, ensure_ascii=False))
         print('=' * 128)
 
-    translated_pickle_content_path = os.path.join(
-        output_dir, 'translated_content_list.pickle')
-    with open(translated_pickle_content_path, 'wb') as f:
-        pickle.dump(content_list, f)
-        print(
-            f'save translated  content list to {translated_pickle_content_path}'
-        )
-
-
-def save_translated_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    **kwargs,
-) -> None:
-    """
-    Args:
-    - content_list: content list, represented by a list of dict.
-    - kwargs: should contain `sys_image_folder`.
-    """
-    sys_image_folder = kwargs.get(
-        'sys_image_folder',
-        os.path.expanduser("~/Pictures"),
-    )
-    print(f'using {sys_image_folder} as sys image save folder')
-
-    md_writer.write('# ' + '=' * 8 \
-                    + '  Translated content  ' \
-                    + '=' * 8 + line_breaker)
-
-    for content in content_list:
+        # save translated content
         lines = ''
         if not content.is_valid():
             print(f'invalid block: {json.dumps(content.__dict__, indent=4)}')
@@ -583,18 +657,31 @@ def save_translated_content(
 
             caption = content.get('translated_table_caption')
             lines += caption + line_breaker
-
         else:
-            print(
-                f'unrecognized content: {json.dumps(content.__dict__, indent=4)}'
-            )
+            pass
 
         lines = post_text_process(lines)
         md_writer.write(lines)
+        md_writer.flush()
+
+    # save pickle result
+    translated_pickle_content_path = os.path.join(
+        output_dir, 'translated_content_list.pickle')
+    with open(translated_pickle_content_path, 'wb') as f:
+        pickle.dump(content_list, f)
+        print(
+            f'save translated  content list to {translated_pickle_content_path}'
+        )
 
 
+# ==============================================================================
+# summary func
 @time_it
-def summary_content(content_list: list[Content]) -> None:
+def summary_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    **kwargs,
+) -> None:
     global summary_prompt, src_lang, target_lang
     print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
 
@@ -620,6 +707,14 @@ def summary_content(content_list: list[Content]) -> None:
         else:
             print(f'unrecognized content: {json.dumps(content, indent=4)}')
 
+    print(f'full content bytes: {len(full_content)}')
+    token_multiplier = 1.5
+    max_byte_num = int(max_summary_token_num * token_multiplier)
+    full_content = full_content[:max_byte_num]
+    print(
+        f'truncated content by {max_byte_num}, max token num: {max_summary_token_num}, token estimate multiplier: {token_multiplier}'
+    )
+
     formatted_promt = summary_prompt.format(
         src_lang=src_lang,
         target_lang=target_lang,
@@ -628,18 +723,26 @@ def summary_content(content_list: list[Content]) -> None:
     print(f'formatted prompt: {formatted_promt}')
 
     summary = ollama_chat(prompt=formatted_promt)
-    return summary
+    print(f'content summary: {summary}')
 
+    summary_save_path = os.path.join(output_dir, 'summary.txt')
+    with open(summary_save_path, 'w') as f:
+        f.write(summary)
+        print(f'summary saved to {summary_save_path}')
 
-def save_summary_of_content(
-    md_writer: TextIOWrapper,
-    summary: str,
-    **kwargs,
-):
+    # save
     md_writer.write('# ' + '=' * 8 + '  Paper summary  ' + '=' * 8 +
                     line_breaker)
     md_writer.write(summary + line_breaker)
     md_writer.write('-' * 8 + line_breaker)
+    md_writer.flush()
+
+
+step_func = {
+    'summary': summary_content,
+    'translate': translate_content,
+    'original': save_parsed_content,
+}
 
 
 @time_it
@@ -649,6 +752,7 @@ def process(
     magic_config_path: str,
     sys_image_folder: str,
     final_md_file_save_dir: str,
+    steps: list[str] = ['summary', 'translate'],
 ) -> None:
     """
     Process pdf file
@@ -660,6 +764,8 @@ def process(
     - sys_image_folder: image save folder.
     - final_md_file_save_dir: folder for saving final md file.
     """
+    print(f'processing started, required steps: {steps}')
+
     os.makedirs(output_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).split('.')[0]
     print(f'file name witout out suffix: {name_without_suff}')
@@ -671,11 +777,11 @@ def process(
         magic_config_path=magic_config_path,
     )
 
-    # save content list
-    pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    with open(pickle_content_path, 'rb') as f:
-        content_list = pickle.load(f)
-    content_list = [Content(content) for content in content_list]
+    # # load parsed content
+    # pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
+    # with open(pickle_content_path, 'rb') as f:
+    #     content_list = pickle.load(f)
+    # content_list = [Content(raw_content=content) for content in content_list]
 
     # md writer
     md_file_path = os.path.join(
@@ -687,28 +793,17 @@ def process(
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
     # summary
-    summary = summary_content(content_list=content_list)
-    summary_save_path = os.path.join(output_dir, 'summary.txt')
-    with open(summary_save_path, 'w') as f:
-        f.write(summary)
-        print(f'summary saved to {summary_save_path}')
-
-    save_summary_of_content(md_writer=md_writer, summary=summary)
-
-    # translate content
-    translate_content(content_list=content_list)
-
-    translated_pickle_content_path = os.path.join(
-        output_dir, 'translated_content_list.pickle')
-    with open(translated_pickle_content_path, 'wb') as f:
-        pickle.dump(content_list, f)
-    print(f'save translated content list to {translated_pickle_content_path}')
-
-    save_translated_content(
-        md_writer=md_writer,
-        content_list=content_list,
-        sys_image_folder=sys_image_folder,
-    )
+    kwargs = {
+        'sys_image_folder': sys_image_folder,
+    }
+    for step in steps:
+        print(f'processing step: {step}')
+        func = step_func[step]
+        func(
+            md_writer=md_writer,
+            content_list=content_list,
+            **kwargs,
+        )
 
     md_writer.close()
     print(f'parsed markdown saved to {md_file_path}')
@@ -747,6 +842,10 @@ if __name__ == '__main__':
                         help="translate target language",
                         default="zh")
 
+    parser.add_argument("--steps",
+                        help="required steps",
+                        default="summary,translate,original")
+
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)
@@ -761,38 +860,13 @@ if __name__ == '__main__':
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
     print(f'final md save folder: {final_md_file_save_dir}')
 
-    # global variables
-    ollama_host = 'http://127.0.0.1:11434'
-    ollama_model = 'qwen3:30b-a3b'
-
-    lang_mapping = {'en': "英语", 'zh': "中文"}
-    gen_conf = {
-        'temperature': 0.1,
-        'top_p': 0.3,
-        'presence_penalty': 0.4,
-        'frequency_penalty': 0.7,
-    }
-    translate_prompt = """
-    <no_think>你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
-
-    {content}
-    """
-
-    summary_prompt = """
-    <no_think>你是一个论文助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容包括论文主要创新点。
-
-    {content}
-    """
-
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
 
-    src_lang = args.src_lang
-    src_lang = lang_mapping[src_lang]
+    src_lang = lang_mapping[args.src_lang]
     print(f'source language: {src_lang}')
 
-    target_lang = args.target_lang
-    target_lang = lang_mapping[target_lang]
+    target_lang = lang_mapping[args.target_lang]
     print(f'target language: {target_lang}')
 
     print(f'processing file: {os.path.basename(args.file_path)}')
@@ -803,4 +877,5 @@ if __name__ == '__main__':
         magic_config_path=magic_config_path,
         sys_image_folder=sys_image_folder,
         final_md_file_save_dir=final_md_file_save_dir,
+        steps=args.steps.split(','),
     )
