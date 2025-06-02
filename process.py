@@ -722,6 +722,7 @@ def summary_content(
     print(f'formatted prompt: {formatted_promt}')
 
     summary = ollama_chat(prompt=formatted_promt)
+    summary = post_text_process(summary)
     print(f'content summary: {summary}')
 
     summary_save_path = os.path.join(output_dir, 'summary.txt')
