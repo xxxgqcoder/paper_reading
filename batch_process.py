@@ -23,7 +23,7 @@ ollama_model = 'qwen3:30b-a3b'
 steps = 'summary,translate,original'
 
 for file_name in file_list:
-    print(f'begin processing {file_path} ')
+    print(f'begin processing {file_name} ')
 
     file_path = os.path.join(base_folder, file_name)
 
@@ -31,7 +31,7 @@ for file_name in file_list:
 python main.py \
     --file_path="{file_path}" \
     --output_dir="{output_dir}" \
-    --sys_image_folder="{sys_image_folder}" \   
+    --sys_image_folder="{sys_image_folder}" \
     --final_md_file_save_dir="{final_md_file_save_dir}" \
     --src_lang={src_lang} \
     --target_lang={target_lang} \
@@ -40,6 +40,7 @@ python main.py \
     --steps={steps} \
     > processing.log 2>&1
 """
+    print(cmd)
     os.system(cmd)
 
     print(f'finish processing {file_path}')
