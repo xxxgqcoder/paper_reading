@@ -6,12 +6,7 @@ echo "working directory $(pwd)"
 
 
 
-file_path="/Users/xcoder/aDrive/books/computer basic/Introduction to Algorithms (dragged).pdf"
-# file_path="/Users/xcoder/obsidian/Profession/attachments/Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.pdf"
-# file_path="/Users/xcoder/obsidian/Profession/attachments/REACT- SYNERGIZING REASONING AND ACTING IN LANGUAGE MODELS.pdf"
-# file_path='/Users/xcoder/obsidian/Profession/attachments/Towards the Dynamics of a DNN Learning Symbolic Interactions.pdf'
-# Learning Internal Representations by Error Propagation.pdf
-# Multilayer Feedforward Networks are Universal Approximators.pdf
+file_path='/Users/xcoder/obsidian/Profession/PDF/Learning Internal Representations by Error Propagation.pdf'
 output_dir='./parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
@@ -22,7 +17,7 @@ ollama_model='qwen3:30b-a3b'
 steps='summary,translate,original'
 
 
-python process.py \
+python main.py \
     --file_path="${file_path}" \
     --output_dir="${output_dir}" \
     --sys_image_folder="${sys_image_folder}" \
