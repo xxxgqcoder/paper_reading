@@ -8,10 +8,11 @@ import time
 import gc
 import time
 import os
-import shutil
-
+import sys
+import traceback
 from io import TextIOWrapper
 from typing import Any, Dict
+from concurrent.futures import ProcessPoolExecutor
 
 from ollama import Client
 from strenum import StrEnum
@@ -103,6 +104,12 @@ def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
     reformatted inserted image path for better display.
     """
     return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
+
+
+def print_exception(e: Exception):
+    print(f"Exception: {type(e).__name__} - {e}")
+    formatted_traceback = traceback.format_exc()
+    print(formatted_traceback)
 
 
 # ==============================================================================
@@ -225,12 +232,21 @@ def post_text_process(text: str) -> str:
     return text
 
 
-@time_it
-def parse_pdf(
+job_executor = None
+
+
+def get_job_executor():
+    global job_executor
+    if job_executor is None:
+        job_executor = ProcessPoolExecutor(max_workers=1)
+    return job_executor
+
+
+def parse_pdf_job(
     file_path: str,
     asset_dir: str,
     magic_config_path: str,
-) -> list[Content]:
+) -> None:
     """
     Parse PDF content and return content list. The result is a list of json 
     oject representing a pdf content block.
@@ -258,14 +274,14 @@ def parse_pdf(
     Refer [MinerU API demo](https://mineru.readthedocs.io/en/latest/user_guide/usage/api.html) 
     for more details.
 
+    Parsed result is saved to `asset_dir`, the content list will be saved using pickle as well.
+
     Args:
     - file_path: path to the pdf file
     - asset_dir: folder for saving parsed assets.
     - magic_config_path: magic pdf config path.
-
-    Returns:
-    - A list of parsed content block dict.
     """
+
     # NOTE: magic_pdf package uses singleton design and the model isntance is
     # initialized when the module is imported, so postpone the import statement
     # until parse method is called.
@@ -347,14 +363,36 @@ def parse_pdf(
         pickle.dump(content_list, f)
         print(f'save parsed content list to {pickle_content_path}')
 
-    obj = ModelSingleton()
-    try:
-        del obj
-        gc.collect()
-    except Exception as e:
-        print(f"Exception: {type(e).__name__} - {e}")
 
-    return [Content(raw_content=content) for content in content_list]
+@time_it
+def parse_pdf(
+    file_path: str,
+    asset_dir: str,
+    magic_config_path: str,
+) -> list[Content]:
+    """"""
+    job_executor = get_job_executor()
+    job_executor.submit(
+        parse_pdf_job,
+        file_path=file_path,
+        asset_dir=asset_dir,
+        magic_config_path=magic_config_path,
+    )
+    try:
+        job_executor.shutdown(wait=True)
+    except Exception as e:
+        print_exception(e)
+        sys.exit(0)
+
+    print(f'PDF parse job done')
+
+    pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
+    print(f'loading content list from {pickle_content_path}')
+    with open(pickle_content_path, 'rb') as f:
+        content_list = pickle.load(f)
+    print(f'loaded {len(content_list)} content from {pickle_content_path}')
+
+    return [Content(content) for content in content_list]
 
 
 # ==============================================================================
