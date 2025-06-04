@@ -22,8 +22,9 @@ ollama_host = 'http://127.0.0.1:11434'
 ollama_model = 'qwen3:30b-a3b'
 steps = 'summary,translate,original'
 
-for file_name in file_list:
-    print(f'begin processing {file_name} ')
+print(f"total {len(file_list)} files")
+for i, file_name in enumerate(file_list):
+    print(f'{i}: begin processing {file_name}')
 
     file_path = os.path.join(base_folder, file_name)
 
@@ -40,7 +41,7 @@ python main.py \
     --steps={steps} \
     > processing.log 2>&1
 """
-    print(cmd)
+    print(f"command line to run: {cmd}")
     os.system(cmd)
 
     print(f'finish processing {file_path}')
