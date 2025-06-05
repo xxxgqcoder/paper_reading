@@ -836,6 +836,10 @@ def process(
     }
     for step in steps:
         print(f'processing step: {step}')
+        step = step.strip()
+        if step not in step_func:
+            print(f'step {step} not configured, ignore')
+            
         func = step_func[step]
         func(
             md_writer=md_writer,
