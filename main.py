@@ -839,7 +839,8 @@ def process(
         step = step.strip()
         if step not in step_func:
             print(f'step {step} not configured, ignore')
-            
+            continue
+
         func = step_func[step]
         func(
             md_writer=md_writer,
