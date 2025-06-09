@@ -167,6 +167,14 @@ def estimate_token_num(text: str) -> Tuple[int, list[str]]:
     return int(token_num), token_buffer
 
 
+def post_text_process(text: str) -> str:
+    # strip space around $
+    p = r" *(\$) *"
+    text = re.sub(p, r"\1", text)
+
+    return text
+
+
 # ==============================================================================
 # parser
 class ContentType(StrEnum):
@@ -211,14 +219,6 @@ class Content():
                 + f"content description: {self.extra_discription} \n"
         else:
             return f"unregnized content"
-
-
-def post_text_process(text: str) -> str:
-    # strip space around $
-    p = r" *(\$) *"
-    text = re.sub(p, r"\1", text)
-
-    return text
 
 
 job_executor = None
