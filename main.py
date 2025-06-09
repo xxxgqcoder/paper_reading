@@ -34,7 +34,7 @@ translate_prompt = """
 """
 
 summary_prompt = """
-/no_think你是一个论文阅读助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容需要包括论文主要创新点。
+/no_think 你是一个论文阅读助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容需要包括论文主要创新点。
 
 {content}
 """
