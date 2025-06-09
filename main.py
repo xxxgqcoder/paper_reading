@@ -627,6 +627,9 @@ def translate_content(
 
     print(f'total {len(content_list)} contents')
 
+    md_writer.write('# ' + '=' * 8 + '  Translated Content  ' + '=' * 8 +
+                    line_breaker)
+
     for i, content in enumerate(content_list):
         print(f'translating content {i}')
 
