@@ -150,7 +150,7 @@ class Content():
 
         elif self.content_type in [ContentType.IMAGE, ContentType.TABLE]:
             return f'content is {self.content_type} \n' \
-                + f"content url : {self.content_path} \n" \
+                + f"content path : {self.content_path} \n" \
                 + f"content description: {self.extra_discription} \n"
         else:
             return f"unregnized content"
@@ -297,73 +297,69 @@ def parse_pdf_job(
                 content['img_path'] = os.path.realpath(
                     os.path.join(asset_dir, img_path))
 
+        # parse content list
+        parsed_content_list = []
+        for raw_content in content_list:
+            content_type = raw_content.get('type', None)
+            content = None
+
+            if content_type in ['text', 'equation']:
+                text = raw_content.get('text', '')
+                if raw_content.get('text_level', None) == 1:
+                    text = "# " + text
+                content = Content(
+                    content_type=ContentType.TEXT
+                    if content_type == 'text' else ContentType.EQUATION,
+                    content=text,
+                    extra_discription="",
+                    content_path=None,
+                )
+            elif content_type == 'image':
+                img_caption = raw_content.get('img_caption', None)
+                img_footnote = raw_content.get('img_footnote', None)
+                img_path = raw_content.get('img_path')
+                text = ""
+                if img_caption:
+                    text += str(img_caption) + line_breaker
+                if img_footnote:
+                    text += str(img_footnote) + line_breaker
+                content = Content(
+                    content_type=ContentType.IMAGE,
+                    content=None,
+                    extra_discription=text,
+                    content_path=img_path,
+                )
+            elif content_type == 'table':
+                table_body = raw_content.get('table_body', None)
+                table_caption = raw_content.get('table_caption', None)
+                table_footnote = raw_content.get('table_footnote', None)
+                img_path = raw_content.get('img_path', None)
+                text = ""
+                if table_body:
+                    text += str(table_body) + line_breaker
+                if table_caption:
+                    text += str(table_caption) + line_breaker
+                if table_footnote:
+                    text += str(table_footnote) + line_breaker
+
+                content = Content(
+                    content_type=ContentType.TABLE,
+                    content=None,
+                    extra_discription=text,
+                    content_path=img_path,
+                )
+            else:
+                raise Exception(f"unknown content type: {content_type}")
+            parsed_content_list.append(content)
+
         # save content list
         pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-
         print(f'saving parsed content list to {pickle_content_path}')
         with open(pickle_content_path, 'wb') as f:
-            pickle.dump(content_list, f)
+            pickle.dump(parsed_content_list, f)
 
     except Exception as e:
         print_exception(e)
-
-
-def json_content_parser(raw_content: Dict[str, Any]) -> Content:
-    """
-    Parse json dict as Content object.
-    """
-    content_type = raw_content.get('type', None)
-    content = None
-
-    if content_type in ['text', 'equation']:
-        text = raw_content.get('text', '')
-        if raw_content.get('text_level', None) == 1:
-            text = "# " + text
-        content = Content(
-            content_type=ContentType.TEXT
-            if content_type == 'text' else ContentType.EQUATION,
-            content=text,
-            extra_discription="",
-            content_path=None,
-        )
-    elif content_type == 'image':
-        img_caption = raw_content.get('img_caption', None)
-        img_footnote = raw_content.get('img_footnote', None)
-        img_path = raw_content.get('img_path')
-        text = ""
-        if img_caption:
-            text += str(img_caption) + line_breaker
-        if img_footnote:
-            text += str(img_footnote) + line_breaker
-        content = Content(
-            content_type=ContentType.IMAGE,
-            content=None,
-            extra_discription=text,
-            content_path=img_path,
-        )
-    elif content_type == 'table':
-        table_body = raw_content.get('table_body', None)
-        table_caption = raw_content.get('table_caption', None)
-        table_footnote = raw_content.get('table_footnote', None)
-        img_path = raw_content.get('img_path', None)
-        text = ""
-        if table_body:
-            text += str(table_body) + line_breaker
-        if table_caption:
-            text += str(table_caption) + line_breaker
-        if table_footnote:
-            text += str(table_footnote) + line_breaker
-
-        content = Content(
-            content_type=ContentType.TABLE,
-            content=None,
-            extra_discription=text,
-            content_path=img_path,
-        )
-    else:
-        raise Exception(f"unknown content type: {content_type}")
-
-    return content
 
 
 @time_it
@@ -372,21 +368,21 @@ def parse_pdf(
     asset_dir: str,
     magic_config_path: str,
 ) -> list[Content]:
-    # # submit job
-    # job_executor = get_job_executor()
-    # job_executor.submit(
-    #     parse_pdf_job,
-    #     file_path=file_path,
-    #     asset_dir=asset_dir,
-    #     magic_config_path=magic_config_path,
-    # )
-    # try:
-    #     job_executor.shutdown(wait=True)
-    # except Exception as e:
-    #     print_exception(e)
-    #     os._exit(0)
+    # submit job
+    job_executor = get_job_executor()
+    job_executor.submit(
+        parse_pdf_job,
+        file_path=file_path,
+        asset_dir=asset_dir,
+        magic_config_path=magic_config_path,
+    )
+    try:
+        job_executor.shutdown(wait=True)
+    except Exception as e:
+        print_exception(e)
+        os._exit(0)
 
-    # print(f'PDF parse job done')
+    print(f'PDF parse job done')
 
     # parse returned content
     pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
@@ -395,8 +391,9 @@ def parse_pdf(
         content_list = pickle.load(f)
     print(f'loaded {len(content_list)} content from {pickle_content_path}')
 
-    ret = [json_content_parser(content) for content in content_list]
-    return ret
+    # ret = [json_content_parser(content) for content in content_list]
+    # return ret
+    return content_list
 
 
 # ==============================================================================
@@ -518,8 +515,6 @@ def save_parsed_content(
         elif content.content_type == ContentType.IMAGE:
             # copy image
             if content.content_path:
-                print(f'iamge path: {content.content_path}')
-
                 img_name = os.path.basename(content.content_path)
                 save_image(content.content_path, sys_image_folder)
 
@@ -534,8 +529,6 @@ def save_parsed_content(
 
             # copy image
             if content.content_path:
-                print(f'iamge path: {content.content_path}')
-
                 img_name = os.path.basename(content.content_path)
                 save_image(content.content_path, sys_image_folder)
 
