@@ -38,7 +38,7 @@ summary_prompt = """
 
 {content}
 """
-max_summary_token_num = 80 * 1024
+max_summary_token_num = 128 * 1024
 
 
 # ==============================================================================
