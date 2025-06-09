@@ -16,7 +16,6 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 import logging
 
-
 from ollama import Client
 from strenum import StrEnum
 
@@ -346,19 +345,19 @@ def parse_pdf_job(
         content_list = pipe_result.get_content_list(image_dir)
 
         # dump content list
-        pipe_result.dump_content_list(md_writer,
-                                    f"{name_without_suff}_content_list.json",
-                                    image_dir)
+        pipe_result.dump_content_list(
+            md_writer, f"{name_without_suff}_content_list.json", image_dir)
 
         # get middle json
         middle_json_content = pipe_result.get_middle_json()
 
         # dump middle json
-        pipe_result.dump_middle_json(md_writer, f'{name_without_suff}_middle.json')
+        pipe_result.dump_middle_json(md_writer,
+                                     f'{name_without_suff}_middle.json')
 
         # save content list
         pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-   
+
         print(f'saving parsed content list to {pickle_content_path}')
         with open(pickle_content_path, 'wb') as f:
             pickle.dump(content_list, f)
@@ -378,7 +377,7 @@ def parse_pdf(
     except:
         pass
     os.makedirs(asset_dir, exist_ok=True)
-    
+
     job_executor = get_job_executor()
     job_executor.submit(
         parse_pdf_job,
@@ -838,7 +837,7 @@ def process(
 
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
-    # summary
+    # apply step functions
     kwargs = {
         'sys_image_folder': sys_image_folder,
     }
