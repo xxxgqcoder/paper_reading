@@ -642,7 +642,7 @@ def translate_content(
         else:
             pass
 
-        print(f'original content: {content}')
+        print(f'content {i}, original content: {content}')
         print('*' * 128)
         print('\n\n')
         print(f'translated content: {translated}')
