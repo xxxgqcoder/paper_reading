@@ -28,7 +28,7 @@ gen_conf = {
     'frequency_penalty': 0.7,
 }
 translate_prompt = """
-你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+/no_think 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
 
 {content}
 """
@@ -656,7 +656,7 @@ def translate_content(
             lines += content.translated_content + line_breaker
 
         elif content.content_type == ContentType.EQUATION:
-            ines += content.content + line_breaker
+            lines += content.content + line_breaker
 
         elif content.content_type == ContentType.IMAGE:
             # img path
