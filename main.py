@@ -13,6 +13,8 @@ import traceback
 from io import TextIOWrapper
 from typing import Any, Dict
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+import logging
 
 from ollama import Client
 from strenum import StrEnum
@@ -63,6 +65,7 @@ def time_it(func):
 
 def save_image(src_path: str, dst_dir: str) -> None:
     dst_path = os.path.join(dst_dir, os.path.basename(src_path))
+    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
     shutil.copyfile(src_path, dst_path)
 
 
@@ -293,75 +296,74 @@ def parse_pdf_job(
     from magic_pdf.data.dataset import PymuDocDataset
     from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze, ModelSingleton
     from magic_pdf.config.enums import SupportedPdfParseMethod
-    from magic_pdf.libs.clean_memory import clean_memory
-    from magic_pdf.libs.config_reader import get_device
+    try:
+        # prepare env
+        name_without_suff = os.path.basename(file_path).split(".")[0]
+        local_image_dir = os.path.join(asset_dir, "images")
+        local_md_dir = asset_dir
+        image_dir = os.path.basename(local_image_dir)
+        os.makedirs(local_image_dir, exist_ok=True)
 
-    # prepare env
-    name_without_suff = os.path.basename(file_path).split(".")[0]
-    local_image_dir = os.path.join(asset_dir, "images")
-    local_md_dir = asset_dir
-    image_dir = os.path.basename(local_image_dir)
-    os.makedirs(local_image_dir, exist_ok=True)
+        image_writer = FileBasedDataWriter(local_image_dir)
+        md_writer = FileBasedDataWriter(local_md_dir)
 
-    image_writer = FileBasedDataWriter(local_image_dir)
-    md_writer = FileBasedDataWriter(local_md_dir)
+        # read bytes
+        reader = FileBasedDataReader("")
+        pdf_bytes = reader.read(file_path)
+        print(f"{file_path}: read bytes count: {len(pdf_bytes)}")
 
-    # read bytes
-    reader = FileBasedDataReader("")
-    pdf_bytes = reader.read(file_path)
-    print(f"{file_path}: read bytes count: {len(pdf_bytes)}")
+        # process
+        ds = PymuDocDataset(pdf_bytes)
 
-    # process
-    ds = PymuDocDataset(pdf_bytes)
+        # inference
+        infer_result = ds.apply(doc_analyze,
+                                ds.classify() == SupportedPdfParseMethod.OCR)
+        pipe_result = infer_result.pipe_txt_mode(image_writer)
 
-    # inference
-    infer_result = ds.apply(doc_analyze,
-                            ds.classify() == SupportedPdfParseMethod.OCR)
-    pipe_result = infer_result.pipe_txt_mode(image_writer)
+        # draw model result on each page
+        infer_result.draw_model(
+            os.path.join(local_md_dir, f"{name_without_suff}_model.pdf"))
 
-    # draw model result on each page
-    infer_result.draw_model(
-        os.path.join(local_md_dir, f"{name_without_suff}_model.pdf"))
+        # get model inference result
+        model_inference_result = infer_result.get_infer_res()
 
-    # get model inference result
-    model_inference_result = infer_result.get_infer_res()
+        # draw layout result on each page
+        pipe_result.draw_layout(
+            os.path.join(local_md_dir, f"{name_without_suff}_layout.pdf"))
 
-    # draw layout result on each page
-    pipe_result.draw_layout(
-        os.path.join(local_md_dir, f"{name_without_suff}_layout.pdf"))
+        # draw spans result on each page
+        pipe_result.draw_span(
+            os.path.join(local_md_dir, f"{name_without_suff}_spans.pdf"))
 
-    # draw spans result on each page
-    pipe_result.draw_span(
-        os.path.join(local_md_dir, f"{name_without_suff}_spans.pdf"))
+        # get markdown content
+        md_content = pipe_result.get_markdown(image_dir)
 
-    # get markdown content
-    md_content = pipe_result.get_markdown(image_dir)
+        # dump markdown
+        pipe_result.dump_md(md_writer, f"{name_without_suff}.md", image_dir)
 
-    # dump markdown
-    pipe_result.dump_md(md_writer, f"{name_without_suff}.md", image_dir)
+        # get content list content
+        content_list = pipe_result.get_content_list(image_dir)
 
-    # get content list content
-    content_list = pipe_result.get_content_list(image_dir)
+        # dump content list
+        pipe_result.dump_content_list(
+            md_writer, f"{name_without_suff}_content_list.json", image_dir)
 
-    # dump content list
-    pipe_result.dump_content_list(md_writer,
-                                  f"{name_without_suff}_content_list.json",
-                                  image_dir)
+        # get middle json
+        middle_json_content = pipe_result.get_middle_json()
 
-    # get middle json
-    middle_json_content = pipe_result.get_middle_json()
+        # dump middle json
+        pipe_result.dump_middle_json(md_writer,
+                                     f'{name_without_suff}_middle.json')
 
-    # dump middle json
-    pipe_result.dump_middle_json(md_writer, f'{name_without_suff}_middle.json')
+        # save content list
+        pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
 
-    # clean up memory
-    clean_memory(get_device())
+        print(f'saving parsed content list to {pickle_content_path}')
+        with open(pickle_content_path, 'wb') as f:
+            pickle.dump(content_list, f)
 
-    # save content list
-    pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-    with open(pickle_content_path, 'wb') as f:
-        pickle.dump(content_list, f)
-        print(f'save parsed content list to {pickle_content_path}')
+    except Exception as e:
+        print_exception(e)
 
 
 @time_it
@@ -370,7 +372,12 @@ def parse_pdf(
     asset_dir: str,
     magic_config_path: str,
 ) -> list[Content]:
-    """"""
+    try:
+        shutil.rmtree(asset_dir)
+    except:
+        pass
+    os.makedirs(asset_dir, exist_ok=True)
+
     job_executor = get_job_executor()
     job_executor.submit(
         parse_pdf_job,
@@ -382,7 +389,7 @@ def parse_pdf(
         job_executor.shutdown(wait=True)
     except Exception as e:
         print_exception(e)
-        sys.exit(0)
+        os._exit(0)
 
     print(f'PDF parse job done')
 
@@ -830,12 +837,17 @@ def process(
 
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
 
-    # summary
+    # apply step functions
     kwargs = {
         'sys_image_folder': sys_image_folder,
     }
     for step in steps:
         print(f'processing step: {step}')
+        step = step.strip()
+        if step not in step_func:
+            print(f'step {step} not configured, ignore')
+            continue
+
         func = step_func[step]
         func(
             md_writer=md_writer,
