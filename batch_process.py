@@ -3,7 +3,7 @@ import subprocess
 
 base_folder = '/Users/xcoder/obsidian/Profession/PDF/'
 file_list = [
-    'DeepSeek-R1 Incentivizing Reasoning Capability in LLMs via Reinforcement Learning.pdf',
+    # 'DeepSeek-R1 Incentivizing Reasoning Capability in LLMs via Reinforcement Learning.pdf',
     'M3-Embedding- Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation.pdf',
     'QWEN TECHNICAL REPORT.pdf',
     'QWEN2 TECHNICAL REPORT.pdf',
@@ -11,6 +11,7 @@ file_list = [
     'QWEN2.5-MATH TECHNICAL REPORT- TOWARD MATHEMATICAL EXPERT MODEL VIA SELFIMPROVEMENT.pdf',
     'Qwen2.5-VL Technical Report.pdf',
     'YaRN- Efficient Context Window Extension of Large Language Models.pdf',
+    'DeepSeek-V3 Technical Report.pdf',
 ]
 
 output_dir = './parsed_assets'
@@ -39,7 +40,7 @@ python main.py \
     --ollama_host={ollama_host} \
     --ollama_model={ollama_model} \
     --steps={steps} \
-    > processing.log 2>&1
+    >> processing.log 2>&1
 """
     print(f"command line to run: {cmd}")
     os.system(cmd)
