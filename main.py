@@ -725,13 +725,13 @@ def summary_content(
         else:
             print(f'unrecognized content: {content}')
 
-    print(f'full content bytes: {len(full_content)}')
+    print(f'full content length: {len(full_content)}')
     token_num, _ = estimate_token_num(full_content)
     print(f'esitmated full content token num: {token_num}')
     if token_num > max_summary_token_num:
         ratio = float(max_summary_token_num) / token_num
         print(
-            f'truncate full content by ratio: {ratio}, original byte num: {len(full_content)}'
+            f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'
         )
         full_content = full_content[:int(len(full_content) * ratio)]
 
