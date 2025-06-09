@@ -5,16 +5,11 @@ import json
 import re
 import shutil
 import time
-import gc
-import time
 import os
-import sys
 import traceback
 from io import TextIOWrapper
 from typing import Any, Dict
 from concurrent.futures import ProcessPoolExecutor
-import multiprocessing
-import logging
 
 from ollama import Client
 from strenum import StrEnum
@@ -129,102 +124,36 @@ class Content():
 
     def __init__(
         self,
-        raw_content: Dict[str, Any],
+        content_type: ContentType,
+        content: str,
+        extra_discription: str,
+        content_path: str,
         **kwargs,
     ):
         """
+        Parsed content.
+        
         Args:
-        - raw_content: original json content.
+        - content_type
+        - content
+        - extra_discription: extra discription for the content, necessary for content like image / table.
+        - content_ucontent_pathrl: url to content, necessary for content like image / table.
         """
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
-        self.raw_content = raw_content
-        # set attribute
-        all_keys = [
-            'img_caption',
-            'img_footnote',
-            'img_path',
-            'page_idx',
-            'table_body',
-            'table_caption',
-            'table_footnote',
-            'text',
-            'text_format',
-            'text_level',
-            'type',
-        ]
-        for k in all_keys:
-            if k in raw_content:
-                setattr(self, k, raw_content[k])
-            else:
-                setattr(self, k, '')
-        missing = [k for k in raw_content if k not in all_keys]
-        if missing:
-            print(f'keys found in raw content but not key list: {missing}')
-
-        self.type = ContentType(raw_content.get('type', 'unknown'))
-
-    def is_valid(self, ) -> bool:
-        """
-        There are corner cases where returned content dont contain expected keys 
-        or values are empty.
-
-        Returns:
-        - bool, true if content is valid.
-        """
-        if self.raw_content is None:
-            self.invalid_reason = 'missing raw content'
-            return False
-
-        # image
-        if self.type == ContentType.IMAGE:
-            if len(self.img_path) < 1:
-                self.invalid_reason = "img_path empty"
-                return False
-
-        # table
-        if self.type == ContentType.TABLE:
-            if len(self.table_body) < 1:
-                self.invalid_reason = "empty table body"
-                return False
-
-        return True
+        self.content_type = content_type
+        self.content = content
+        self.extra_discription = extra_discription
+        self.content_path = content_path
 
     def __str__(self, ) -> str:
-        if not self.is_valid():
-            return 'content is invaid\n' \
-                + f"invalid reason: {self.valid_reason}\n" \
-                + f"original content: {json.dumps(self.raw_content, indent=4)}"
+        if self.content_type in [ContentType.TEXT, ContentType.EQUATION]:
+            return self.content
 
-        if self.type == ContentType.TEXT or self.type == ContentType.EQUATION:
-            return self.get('text')
-
-        elif self.type == ContentType.IMAGE:
-            return 'content is image \n' \
-                + f"image path: {self.img_path} \n" \
-                + f"image caption: {self.img_caption} \n" \
-                + f"image footnote: {self.img_footnote} \n"
-
-        elif self.type == ContentType.TABLE:
-            return 'content is table \n' \
-                + f"table body: {self.table_body} \n" \
-                + f"table caption: {self.table_caption} \n" \
-                + f"table footnote: {self.table_footnote} \n"
-
+        elif self.content_type in [ContentType.IMAGE, ContentType.TABLE]:
+            return f'content is {self.content_type} \n' \
+                + f"content url : {self.content_path} \n" \
+                + f"content description: {self.extra_discription} \n"
         else:
-            return f"unregnized content: {json.dumps(self.raw_content, indent=4)}"
-
-    def get(self, key: str, default_val: str = "") -> str:
-        if key not in self.__dict__:
-            return default_val
-        val = self.__dict__[key]
-        if val is None:
-            return default_val
-        return val
-
-    def set(self, key: str, value: str) -> None:
-        setattr(self, key, value)
+            return f"unregnized content"
 
 
 def post_text_process(text: str) -> str:
@@ -298,6 +227,12 @@ def parse_pdf_job(
     from magic_pdf.config.enums import SupportedPdfParseMethod
     try:
         # prepare env
+        try:
+            shutil.rmtree(asset_dir)
+        except:
+            pass
+        os.makedirs(asset_dir, exist_ok=True)
+
         name_without_suff = os.path.basename(file_path).split(".")[0]
         local_image_dir = os.path.join(asset_dir, "images")
         local_md_dir = asset_dir
@@ -355,6 +290,13 @@ def parse_pdf_job(
         pipe_result.dump_middle_json(md_writer,
                                      f'{name_without_suff}_middle.json')
 
+        # update image path to absolute path
+        for content in content_list:
+            img_path = content.get('img_path', None)
+            if img_path:
+                content['img_path'] = os.path.realpath(
+                    os.path.join(asset_dir, img_path))
+
         # save content list
         pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
 
@@ -366,40 +308,95 @@ def parse_pdf_job(
         print_exception(e)
 
 
+def json_content_parser(raw_content: Dict[str, Any]) -> Content:
+    """
+    Parse json dict as Content object.
+    """
+    content_type = raw_content.get('type', None)
+    content = None
+
+    if content_type in ['text', 'equation']:
+        text = raw_content.get('text', '')
+        if raw_content.get('text_level', None) == 1:
+            text = "# " + text
+        content = Content(
+            content_type=ContentType.TEXT
+            if content_type == 'text' else ContentType.EQUATION,
+            content=text,
+            extra_discription="",
+            content_path=None,
+        )
+    elif content_type == 'image':
+        img_caption = raw_content.get('img_caption', None)
+        img_footnote = raw_content.get('img_footnote', None)
+        img_path = raw_content.get('img_path')
+        text = ""
+        if img_caption:
+            text += str(img_caption) + line_breaker
+        if img_footnote:
+            text += str(img_footnote) + line_breaker
+        content = Content(
+            content_type=ContentType.IMAGE,
+            content=None,
+            extra_discription=text,
+            content_path=img_path,
+        )
+    elif content_type == 'table':
+        table_body = raw_content.get('table_body', None)
+        table_caption = raw_content.get('table_caption', None)
+        table_footnote = raw_content.get('table_footnote', None)
+        img_path = raw_content.get('img_path', None)
+        text = ""
+        if table_body:
+            text += str(table_body) + line_breaker
+        if table_caption:
+            text += str(table_caption) + line_breaker
+        if table_footnote:
+            text += str(table_footnote) + line_breaker
+
+        content = Content(
+            content_type=ContentType.TABLE,
+            content=None,
+            extra_discription=text,
+            content_path=img_path,
+        )
+    else:
+        raise Exception(f"unknown content type: {content_type}")
+
+    return content
+
+
 @time_it
 def parse_pdf(
     file_path: str,
     asset_dir: str,
     magic_config_path: str,
 ) -> list[Content]:
-    try:
-        shutil.rmtree(asset_dir)
-    except:
-        pass
-    os.makedirs(asset_dir, exist_ok=True)
+    # # submit job
+    # job_executor = get_job_executor()
+    # job_executor.submit(
+    #     parse_pdf_job,
+    #     file_path=file_path,
+    #     asset_dir=asset_dir,
+    #     magic_config_path=magic_config_path,
+    # )
+    # try:
+    #     job_executor.shutdown(wait=True)
+    # except Exception as e:
+    #     print_exception(e)
+    #     os._exit(0)
 
-    job_executor = get_job_executor()
-    job_executor.submit(
-        parse_pdf_job,
-        file_path=file_path,
-        asset_dir=asset_dir,
-        magic_config_path=magic_config_path,
-    )
-    try:
-        job_executor.shutdown(wait=True)
-    except Exception as e:
-        print_exception(e)
-        os._exit(0)
+    # print(f'PDF parse job done')
 
-    print(f'PDF parse job done')
-
+    # parse returned content
     pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
     print(f'loading content list from {pickle_content_path}')
     with open(pickle_content_path, 'rb') as f:
         content_list = pickle.load(f)
     print(f'loaded {len(content_list)} content from {pickle_content_path}')
 
-    return [Content(content) for content in content_list]
+    ret = [json_content_parser(content) for content in content_list]
+    return ret
 
 
 # ==============================================================================
@@ -502,58 +499,48 @@ def save_parsed_content(
         os.path.expanduser("~/Pictures"),
     )
     print(f'using {sys_image_folder} as sys image save folder')
-
     print(f'total {len(content_list)} contents')
 
-    md_writer.write('# ' + '=' * 8 + '  Original content  ' + '=' * 8 +
+    md_writer.write('# ' + '=' * 8 + '  Original Content  ' + '=' * 8 +
                     line_breaker)
 
     for i, content in enumerate(content_list):
         print(f'processing content {i}')
 
         lines = ''
-        if not content.is_valid():
-            print(f'invalid block: {json.dumps(content.__dict__, indent=4)}')
-            continue
 
-        if content.type == ContentType.TEXT:
-            text = content.get('text')
-            if content.text_level == 1:
-                text = '# ' + text
-            lines += text + line_breaker
+        if content.content_type == ContentType.TEXT:
+            lines += content.content + line_breaker
 
-        elif content.type == ContentType.EQUATION:
-            lines += content.text + line_breaker
+        elif content.content_type == ContentType.EQUATION:
+            lines += content.content + line_breaker
 
-        elif content.type == ContentType.IMAGE:
+        elif content.content_type == ContentType.IMAGE:
             # copy image
-            abs_img_path = os.path.join(output_dir, content.img_path)
-            img_name = os.path.basename(abs_img_path)
-            save_image(abs_img_path, sys_image_folder)
+            if content.content_path:
+                print(f'iamge path: {content.content_path}')
 
-            lines += format_md_image_path(sys_image_folder, img_name)
-            lines += line_breaker
-
-            # image caption
-            lines += str(content.img_caption) + line_breaker
-
-            # image footnote
-            lines += str(content.img_footnote) + line_breaker
-
-        elif content.type == ContentType.TABLE:
-            table_body = content.table_body
-            lines += table_body + line_breaker
-
-            img_path = content.img_path
-            if len(img_path) > 0:
-                abs_img_path = os.path.join(output_dir, img_path)
-                img_name = os.path.basename(abs_img_path)
-                save_image(abs_img_path, sys_image_folder)
+                img_name = os.path.basename(content.content_path)
+                save_image(content.content_path, sys_image_folder)
 
                 lines += format_md_image_path(sys_image_folder, img_name)
-                lines += '-' * 8 + line_breaker
+                lines += line_breaker
 
-            lines += str(content.table_caption) + line_breaker
+            lines += content.extra_discription + line_breaker
+
+        elif content.content_type == ContentType.TABLE:
+            lines += str(
+                content.content) + content.extra_discription + line_breaker
+
+            # copy image
+            if content.content_path:
+                print(f'iamge path: {content.content_path}')
+
+                img_name = os.path.basename(content.content_path)
+                save_image(content.content_path, sys_image_folder)
+
+                lines += format_md_image_path(sys_image_folder, img_name)
+                lines += line_breaker
         else:
             pass
 
@@ -564,60 +551,15 @@ def save_parsed_content(
 
 # ==============================================================================
 # translate func
-def translate_table_content(content: Content) -> None:
-    table_caption = content.table_caption
-    if not is_empty(table_caption):
-        formatted_prompt = translate_prompt.format(
-            src_lang=src_lang,
-            target_lang=target_lang,
-            content=table_caption,
-        )
-        translated_table_caption = ollama_chat(prompt=formatted_prompt)
-        content.set('translated_table_caption', translated_table_caption)
-
-    table_footnote = content.table_footnote
-    if not is_empty(table_footnote):
-        formatted_prompt = translate_prompt.format(
-            src_lang=src_lang,
-            target_lang=target_lang,
-            content=table_footnote,
-        )
-        translated_table_footnote = ollama_chat(prompt=formatted_prompt)
-        content.set('table_footnote', translated_table_footnote)
-
-
-def translate_image_content(content: Content) -> None:
-    img_caption = content.img_caption
-    if not is_empty(img_caption):
-        formatted_prompt = translate_prompt.format(
-            src_lang=src_lang,
-            target_lang=target_lang,
-            content=img_caption,
-        )
-        translated_img_caption = ollama_chat(prompt=formatted_prompt)
-        content.set('translated_img_caption', translated_img_caption)
-
-    img_footnote = content.img_footnote
-    if not is_empty(img_footnote):
-        formatted_prompt = translate_prompt.format(
-            src_lang=src_lang,
-            target_lang=target_lang,
-            content=img_footnote,
-        )
-        translated_img_footnote = ollama_chat(prompt=formatted_prompt)
-        content.set('translated_img_footnote', translated_img_footnote)
-
-
-def translate_text_content(content: Content) -> None:
-    text = content.text
-    if not is_empty(text):
-        formatted_prompt = translate_prompt.format(
-            src_lang=src_lang,
-            target_lang=target_lang,
-            content=text,
-        )
-        translated_text = ollama_chat(prompt=formatted_prompt)
-        content.set('translated_text', translated_text)
+def translate_text_content(text: str) -> str:
+    if is_empty(text):
+        return ""
+    formatted_prompt = translate_prompt.format(
+        src_lang=src_lang,
+        target_lang=target_lang,
+        content=text,
+    )
+    return ollama_chat(prompt=formatted_prompt)
 
 
 @time_it
@@ -640,67 +582,53 @@ def translate_content(
     print(f'total {len(content_list)} contents')
 
     for i, content in enumerate(content_list):
-        print(f'processing content {i}')
-        if content.type == ContentType.TABLE:
-            translate_table_content(content)
-        elif content.type == ContentType.IMAGE:
-            translate_image_content(content)
-        elif content.type == ContentType.TEXT:
-            translate_text_content(content)
-        else:
-            print(
-                f'unrecognized content: {json.dumps(content.__dict__, indent=4)}'
-            )
+        if content.content_type == ContentType.TEXT:
+            translated = translate_text_content(content.content)
+            content.translated_content = translated
 
-        print(json.dumps(content.__dict__, indent=4, ensure_ascii=False))
+        elif content.content_type in [ContentType.TABLE, ContentType.IMAGE]:
+            translated = translate_text_content(content.extra_discription)
+            content.translated_extra_discription = translated
+            print(f'tranlated content: {translated}')
+
+        else:
+            pass
+
+        print(f'original content: {content}')
+        print('*' * 128)
+        print('\n\n')
+        print(f'translated content: {translated}')
+
         print('=' * 128)
+        print('\n\n')
 
         # save translated content
         lines = ''
-        if not content.is_valid():
-            print(f'invalid block: {json.dumps(content.__dict__, indent=4)}')
-            continue
+        if content.content_type == ContentType.TEXT:
+            lines += content.translated_content + line_breaker
 
-        if content.type == ContentType.TEXT:
-            text = content.get('translated_text')
-            if content.text_level == 1:
-                text = '# ' + text
-            lines += text + line_breaker
+        elif content.content_type == ContentType.EQUATION:
+            ines += content.content + line_breaker
 
-        elif content.type == ContentType.EQUATION:
-            lines += content.text + line_breaker
-
-        elif content.type == ContentType.IMAGE:
-            # copy image
-            abs_img_path = os.path.join(output_dir, content.img_path)
-            img_name = os.path.basename(abs_img_path)
-            save_image(abs_img_path, sys_image_folder)
-            lines += format_md_image_path(sys_image_folder, img_name)
-            lines += line_breaker
-
-            # image caption
-            img_caption = content.get('translated_img_caption')
-            lines += img_caption + line_breaker
-
-            # image footnote
-            img_footnote = content.get('translated_img_footnote')
-            lines += img_footnote + line_breaker
-
-        elif content.type == ContentType.TABLE:
-            table_body = content.table_body
-            lines += table_body + line_breaker
-
-            img_path = content.img_path
-            if len(img_path) > 0:
-                abs_img_path = os.path.join(output_dir, img_path)
-                img_name = os.path.basename(abs_img_path)
-                save_image(abs_img_path, sys_image_folder)
-
+        elif content.content_type == ContentType.IMAGE:
+            # img path
+            if content.content_path:
+                img_name = os.path.basename(content.content_path)
                 lines += format_md_image_path(sys_image_folder, img_name)
-                lines += '-' * 8 + line_breaker
+                lines += line_breaker
 
-            caption = content.get('translated_table_caption')
-            lines += caption + line_breaker
+            # extra disscription
+            lines += content.translated_extra_discription + line_breaker
+
+        elif content.content_type == ContentType.TABLE:
+            # img path
+            if content.content_path:
+                img_name = os.path.basename(content.content_path)
+                lines += format_md_image_path(sys_image_folder, img_name)
+                lines += line_breaker
+
+            # extra disscription
+            lines += content.translated_extra_discription + line_breaker
         else:
             pass
 
@@ -731,32 +659,27 @@ def summary_content(
 
     full_content = ''
     for content in content_list:
-        if content.type == ContentType.TEXT:
-            text = content.text
-            if content.text_level == 1:
-                text = '# ' + text
-            full_content += text + line_breaker
+        if content.content_type == ContentType.TEXT:
+            full_content += content.content + line_breaker
 
-        elif content.type == ContentType.EQUATION:
-            text = content.text
-            full_content += text + line_breaker
+        elif content.content_type == ContentType.EQUATION:
+            full_content += content.content + line_breaker
 
-        elif content.type == ContentType.IMAGE:
-            full_content += str(content.img_caption) + line_breaker
-            full_content += str(content.img_footnote) + line_breaker
+        elif content.content_type == ContentType.IMAGE:
+            full_content += content.extra_discription + line_breaker
 
-        elif content.type == ContentType.TABLE:
-            full_content += str(content.table_caption) + line_breaker
+        elif content.content_type == ContentType.TABLE:
+            full_content += content.extra_discription + line_breaker
 
         else:
-            print(f'unrecognized content: {json.dumps(content, indent=4)}')
+            print(f'unrecognized content: {content}')
 
     print(f'full content bytes: {len(full_content)}')
-    token_multiplier = 1.5
-    max_byte_num = int(max_summary_token_num * token_multiplier)
+    token_byte_multiplier = 4
+    max_byte_num = int(max_summary_token_num * token_byte_multiplier)
     full_content = full_content[:max_byte_num]
     print(
-        f'truncated content by {max_byte_num}, max token num: {max_summary_token_num}, token estimate multiplier: {token_multiplier}'
+        f'truncated content by {max_byte_num}, max token num: {max_summary_token_num}, token estimate multiplier: {token_byte_multiplier}'
     )
 
     formatted_promt = summary_prompt.format(
@@ -776,7 +699,7 @@ def summary_content(
         print(f'summary saved to {summary_save_path}')
 
     # save
-    md_writer.write('# ' + '=' * 8 + '  Paper summary  ' + '=' * 8 +
+    md_writer.write('# ' + '=' * 8 + '  Paper Summary  ' + '=' * 8 +
                     line_breaker)
     md_writer.write(summary + line_breaker)
     md_writer.write('-' * 8 + line_breaker)
@@ -821,12 +744,6 @@ def process(
         asset_dir=output_dir,
         magic_config_path=magic_config_path,
     )
-
-    # # load parsed content
-    # pickle_content_path = os.path.join(output_dir, 'content_list.pickle')
-    # with open(pickle_content_path, 'rb') as f:
-    #     content_list = pickle.load(f)
-    # content_list = [Content(raw_content=content) for content in content_list]
 
     # md writer
     md_file_path = os.path.join(
