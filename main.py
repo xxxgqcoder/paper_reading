@@ -8,7 +8,7 @@ import time
 import os
 import traceback
 from io import TextIOWrapper
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor
 
 from ollama import Client
@@ -28,13 +28,13 @@ gen_conf = {
     'frequency_penalty': 0.7,
 }
 translate_prompt = """
-<no_think>你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
 
 {content}
 """
 
 summary_prompt = """
-<no_think>你是一个论文助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容包括论文主要创新点。
+你是一个论文阅读助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容需要包括论文主要创新点。
 
 {content}
 """
@@ -108,6 +108,63 @@ def print_exception(e: Exception):
     print(f"Exception: {type(e).__name__} - {e}")
     formatted_traceback = traceback.format_exc()
     print(formatted_traceback)
+
+
+def estimate_token_num(text: str) -> Tuple[int, list[str]]:
+    """
+    Estimate tokens in text. Combine consecutive ascii character as one token,
+    treat each non-ascii character as one token. Each ascii token accounts for 2.3
+    token, each non-ascii token accounts for 1.2 token.
+
+    Args:
+    - text: the string to parse.
+
+    Return:
+    - int, estimated token num.
+    - list of string, estimated tokens.
+    """
+    if text is None or len(text.strip()) == 0:
+        return 0, []
+
+    text = text.strip()
+
+    def is_space(ch: str) -> bool:
+        if ord(ch) >= 128:
+            return False
+        if ch.strip() == '':
+            return True
+        return False
+
+    def token_bound_found(text: str, i: int, j: int) -> bool:
+        if ord(text[i]) < 127:
+            # space met or non-ascii character met
+            return (is_space(text[j]) or ord(text[j]) > 127)
+        else:
+            # count one non-ascii character as one token
+            return j > i
+
+    token_buffer = []
+    i = 0
+    while i < len(text):
+        j = i + 1
+        while j < len(text) and not token_bound_found(text, i, j):
+            j += 1
+
+        token = text[i:j]
+        token_buffer.append(token)
+
+        i = j
+        while i < len(text) and is_space(text[i]):
+            i += 1
+
+    token_num = 0
+    for token in token_buffer:
+        if ord(token[0]) < 128:
+            token_num += 2.3
+        else:
+            token_num += 1.5
+
+    return int(token_num), token_buffer
 
 
 # ==============================================================================
@@ -391,8 +448,6 @@ def parse_pdf(
         content_list = pickle.load(f)
     print(f'loaded {len(content_list)} content from {pickle_content_path}')
 
-    # ret = [json_content_parser(content) for content in content_list]
-    # return ret
     return content_list
 
 
@@ -434,7 +489,7 @@ def calculate_dynamic_ctx(history: list[Dict[str, Any]]) -> int:
     for message in history:
         content = message.get("content", "")
         # Calculate content tokens
-        content_tokens = count_tokens(content)
+        content_tokens = estimate_token_num(content)[0]
         # Add role marker token overhead
         role_tokens = 4
         total_tokens += content_tokens + role_tokens
@@ -668,12 +723,14 @@ def summary_content(
             print(f'unrecognized content: {content}')
 
     print(f'full content bytes: {len(full_content)}')
-    token_byte_multiplier = 4
-    max_byte_num = int(max_summary_token_num * token_byte_multiplier)
-    full_content = full_content[:max_byte_num]
-    print(
-        f'truncated content by {max_byte_num}, max token num: {max_summary_token_num}, token estimate multiplier: {token_byte_multiplier}'
-    )
+    token_num, _ = estimate_token_num(full_content)
+    print(f'esitmated full content token num: {token_num}')
+    if token_num > max_summary_token_num:
+        ratio = float(max_summary_token_num) / token_num
+        print(
+            f'truncate full content by ratio: {ratio}, original byte num: {len(full_content)}'
+        )
+        full_content = full_content[:int(len(full_content) * ratio)]
 
     formatted_promt = summary_prompt.format(
         src_lang=src_lang,
