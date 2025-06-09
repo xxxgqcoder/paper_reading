@@ -557,8 +557,6 @@ def save_parsed_content(
                     line_breaker)
 
     for i, content in enumerate(content_list):
-        print(f'processing content {i}')
-
         lines = ''
 
         if content.content_type == ContentType.TEXT:
@@ -630,6 +628,8 @@ def translate_content(
     print(f'total {len(content_list)} contents')
 
     for i, content in enumerate(content_list):
+        print(f'translating content {i}')
+
         if content.content_type == ContentType.TEXT:
             translated = translate_text_content(content.content)
             content.translated_content = translated
