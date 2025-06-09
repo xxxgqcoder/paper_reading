@@ -7,6 +7,7 @@ import shutil
 import time
 import os
 import traceback
+import math
 from io import TextIOWrapper
 from typing import Any, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor
@@ -600,12 +601,24 @@ def save_parsed_content(
 def translate_text_content(text: str) -> str:
     if is_empty(text):
         return ""
-    formatted_prompt = translate_prompt.format(
-        src_lang=src_lang,
-        target_lang=target_lang,
-        content=text,
-    )
-    return ollama_chat(prompt=formatted_prompt)
+    
+    max_byte_len = 8 * 1024
+    block_num = math.ceil(len(text) / max_byte_len)
+    print(f'text byte length: {len(text)}, block num: {block_num}')
+    full_result = ""
+    for i in range(block_num):
+        segment = text[i * max_byte_len:(i + 1) * max_byte_len]
+
+        formatted_prompt = translate_prompt.format(
+            src_lang=src_lang,
+            target_lang=target_lang,
+            content=segment,
+        )
+        ret = ollama_chat(prompt=formatted_prompt)
+
+        full_result += ret
+
+    return full_result
 
 
 @time_it
