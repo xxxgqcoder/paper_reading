@@ -693,6 +693,7 @@ def translate_content(
         elif content.content_type == ContentType.IMAGE:
             # img path
             if content.content_path:
+                save_image(content.content_path, sys_image_folder)
                 img_name = os.path.basename(content.content_path)
                 lines += format_md_image_path(sys_image_folder, img_name)
                 lines += line_breaker
@@ -703,6 +704,7 @@ def translate_content(
         elif content.content_type == ContentType.TABLE:
             # img path
             if content.content_path:
+                save_image(content.content_path, sys_image_folder)
                 img_name = os.path.basename(content.content_path)
                 lines += format_md_image_path(sys_image_folder, img_name)
                 lines += line_breaker
