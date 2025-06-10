@@ -175,6 +175,9 @@ def post_text_process(text: str) -> str:
 
     return text
 
+def format_list_as_str(l: list[Any])-> str:
+    return '\n'.join([str(e) for e in l])
+
 
 # ==============================================================================
 # parser
@@ -374,13 +377,20 @@ def parse_pdf_job(
                 )
             elif content_type == 'image':
                 img_caption = raw_content.get('img_caption', None)
+                if isinstance(img_caption, list):
+                    img_caption = format_list_as_str(img_caption)
+
                 img_footnote = raw_content.get('img_footnote', None)
+                if isinstance(img_footnote, list):
+                    img_footnote = format_list_as_str(img_footnote)
+
                 img_path = raw_content.get('img_path')
                 text = ""
                 if img_caption:
-                    text += str(img_caption) + line_breaker
+                    text += img_caption + line_breaker
                 if img_footnote:
-                    text += str(img_footnote) + line_breaker
+                    text += img_footnote + line_breaker
+
                 content = Content(
                     content_type=ContentType.IMAGE,
                     content=None,
@@ -390,15 +400,21 @@ def parse_pdf_job(
             elif content_type == 'table':
                 table_body = raw_content.get('table_body', None)
                 table_caption = raw_content.get('table_caption', None)
+                if isinstance(table_caption, list):
+                    table_caption = format_list_as_str(table_caption)
+
                 table_footnote = raw_content.get('table_footnote', None)
+                if isinstance(table_footnote, list):
+                    table_footnote = format_list_as_str(table_footnote)
+
                 img_path = raw_content.get('img_path', None)
                 text = ""
                 if table_body:
                     text += str(table_body) + line_breaker
                 if table_caption:
-                    text += str(table_caption) + line_breaker
+                    text += table_caption + line_breaker
                 if table_footnote:
-                    text += str(table_footnote) + line_breaker
+                    text += table_footnote + line_breaker
 
                 content = Content(
                     content_type=ContentType.TABLE,
