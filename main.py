@@ -820,7 +820,7 @@ def process(
 
     os.makedirs(output_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).rsplit('.', 1)[0]
-    print(f'file name witout out suffix: {name_without_suff}')
+    print(f'file name without out suffix: {name_without_suff}')
 
     # parse pdf
     content_list = parse_pdf(
