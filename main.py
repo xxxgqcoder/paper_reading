@@ -819,7 +819,7 @@ def process(
     print(f'processing started, required steps: {steps}')
 
     os.makedirs(output_dir, exist_ok=True)
-    name_without_suff = os.path.basename(file_path).split('.')[0]
+    name_without_suff = os.path.basename(file_path).rsplit('.', 1)[0]
     print(f'file name witout out suffix: {name_without_suff}')
 
     # parse pdf

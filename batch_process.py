@@ -16,7 +16,7 @@ with open(log_file) as f:
         if log_pattern not in line:
             continue
         file_path = line.split(log_pattern)[-1].strip()
-        name_without_suff = os.path.basename(file_path).split('.')[0]
+        name_without_suff = os.path.basename(file_path).rsplit('.', 1)[0]
         print(f'found log for file: {name_without_suff}')
         ignore_list.append(f"{name_without_suff}.pdf")
 
@@ -35,7 +35,7 @@ src_lang = 'en'
 target_lang = 'zh'
 ollama_host = 'http://127.0.0.1:11434'
 ollama_model = 'qwen3:30b-a3b'
-steps = 'summary,translate,original'
+steps = 'summary,translate'
 
 for i, file_name in enumerate(file_list):
     print(f'{i}: begin processing {file_name}')
