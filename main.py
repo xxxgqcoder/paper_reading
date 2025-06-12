@@ -175,7 +175,8 @@ def post_text_process(text: str) -> str:
 
     return text
 
-def format_list_as_str(l: list[Any])-> str:
+
+def format_list_as_str(l: list[Any]) -> str:
     return '\n'.join([str(e) for e in l])
 
 
@@ -617,7 +618,7 @@ def save_parsed_content(
 def translate_text_content(text: str) -> str:
     if is_empty(text):
         return ""
-    
+
     max_byte_len = 8 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
     print(f'text byte length: {len(text)}, block num: {block_num}')
