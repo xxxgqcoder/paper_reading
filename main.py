@@ -537,11 +537,9 @@ def ollama_chat(prompt: str, ) -> str:
     ollama_client = get_ollama_client()
 
     history = [{'role': 'user', 'content': prompt}]
-    ctx_size = calculate_dynamic_ctx(history)
     if "max_tokens" in gen_conf:
         del gen_conf["max_tokens"]
-
-    options = {"num_ctx": ctx_size}
+    options = {}
     if "temperature" in gen_conf:
         options["temperature"] = gen_conf["temperature"]
     if "max_tokens" in gen_conf:
@@ -556,7 +554,7 @@ def ollama_chat(prompt: str, ) -> str:
     response = ollama_client.chat(model=ollama_model,
                                   messages=history,
                                   options=options,
-                                  keep_alive=600)
+                                  keep_alive=10)
 
     ans = response["message"]["content"].strip()
     if '</think>' in ans:
@@ -673,6 +671,8 @@ def translate_content(
                 f'translating content {i}, original content: {content}'))
         print('*' * 128)
         print('\n\n')
+
+        time.sleep(0.2)
 
         if content.content_type == ContentType.TEXT:
             translated = translate_text_content(content.content)
