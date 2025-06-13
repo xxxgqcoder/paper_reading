@@ -1,7 +1,6 @@
 import argparse
 import os
 import pickle
-import json
 import re
 import shutil
 import time
@@ -11,6 +10,7 @@ import math
 from io import TextIOWrapper
 from typing import Any, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
 
 from ollama import Client
 from strenum import StrEnum
@@ -106,7 +106,7 @@ def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
 
 
 def print_exception(e: Exception):
-    print(f"Exception: {type(e).__name__} - {e}")
+    print(f"{datetime.now()}: Exception: {type(e).__name__} - {e}")
     formatted_traceback = traceback.format_exc()
     print(formatted_traceback)
 
@@ -178,6 +178,10 @@ def post_text_process(text: str) -> str:
 
 def format_list_as_str(l: list[Any]) -> str:
     return '\n'.join([str(e) for e in l])
+
+
+def format_log(text: str) -> str:
+    return f"{datetime.now()}: {text}"
 
 
 # ==============================================================================
@@ -281,7 +285,9 @@ def parse_pdf_job(
     # until parse method is called.
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
-    print(f'setting magic pdf config path to {magic_config_path}')
+    print(
+        format_log(f'setting magic pdf config path to {magic_config_path}')
+    )
 
     from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
     from magic_pdf.data.dataset import PymuDocDataset
@@ -307,7 +313,9 @@ def parse_pdf_job(
         # read bytes
         reader = FileBasedDataReader("")
         pdf_bytes = reader.read(file_path)
-        print(f"{file_path}: read bytes count: {len(pdf_bytes)}")
+        print(
+            format_log(f"{file_path}: read bytes count: {len(pdf_bytes)}")
+        )
 
         # process
         ds = PymuDocDataset(pdf_bytes)
@@ -429,7 +437,9 @@ def parse_pdf_job(
 
         # save content list
         pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-        print(f'saving parsed content list to {pickle_content_path}')
+        print(
+            format_log(f'saving parsed content list to {pickle_content_path}')
+        )
         with open(pickle_content_path, 'wb') as f:
             pickle.dump(parsed_content_list, f)
 
@@ -457,14 +467,16 @@ def parse_pdf(
         print_exception(e)
         os._exit(0)
 
-    print(f'PDF parse job done')
+    print(format_log(f'PDF parse job done'))
 
     # parse returned content
     pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-    print(f'loading content list from {pickle_content_path}')
+    print(format_log(f'loading content list from {pickle_content_path}'))
     with open(pickle_content_path, 'rb') as f:
         content_list = pickle.load(f)
-    print(f'loaded {len(content_list)} content from {pickle_content_path}')
+    print(
+        format_log(f'loaded {len(content_list)} content from {pickle_content_path}')
+    )
 
     return content_list
 
@@ -568,8 +580,9 @@ def save_parsed_content(
         'sys_image_folder',
         os.path.expanduser("~/Pictures"),
     )
-    print(f'using {sys_image_folder} as sys image save folder')
-    print(f'total {len(content_list)} contents')
+    print(
+        format_log(f'using {sys_image_folder} as sys image save folder'))
+    print(format_log(f'total {len(content_list)} contents'))
 
     md_writer.write('# ' + '=' * 8 + '  Original Content  ' + '=' * 8 +
                     line_breaker)
@@ -621,7 +634,9 @@ def translate_text_content(text: str) -> str:
 
     max_byte_len = 8 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
-    print(f'text byte length: {len(text)}, block num: {block_num}')
+    print(
+        format_log(f'text byte length: {len(text)}, block num: {block_num}')
+    )
     full_result = ""
     for i in range(block_num):
         segment = text[i * max_byte_len:(i + 1) * max_byte_len]
@@ -653,15 +668,19 @@ def translate_content(
         'sys_image_folder',
         os.path.expanduser("~/Pictures"),
     )
-    print(f'using {sys_image_folder} as sys image save folder')
+    print(
+        format_log(f'using {sys_image_folder} as sys image save folder'))
 
-    print(f'total {len(content_list)} contents')
+    print(format_log(f'total {len(content_list)} contents'))
 
     md_writer.write('# ' + '=' * 8 + '  Translated Content  ' + '=' * 8 +
                     line_breaker)
 
     for i, content in enumerate(content_list):
-        print(f'translating content {i}')
+        print(format_log(f'translating content {i}'))
+        print(format_log(f'content {i}, original content: {content}'))
+        print('*' * 128)
+        print('\n\n')
 
         if content.content_type == ContentType.TEXT:
             translated = translate_text_content(content.content)
@@ -670,16 +689,12 @@ def translate_content(
         elif content.content_type in [ContentType.TABLE, ContentType.IMAGE]:
             translated = translate_text_content(content.extra_discription)
             content.translated_extra_discription = translated
-            print(f'tranlated content: {translated}')
+            print(format_log(f'tranlated content: {translated}'))
 
         else:
             pass
 
-        print(f'content {i}, original content: {content}')
-        print('*' * 128)
-        print('\n\n')
-        print(f'translated content: {translated}')
-
+        print(format_log(f'translated content: {translated}'))
         print('=' * 128)
         print('\n\n')
 
@@ -725,7 +740,7 @@ def translate_content(
     with open(translated_pickle_content_path, 'wb') as f:
         pickle.dump(content_list, f)
         print(
-            f'save translated  content list to {translated_pickle_content_path}'
+            format_log(f'save translated  content list to {translated_pickle_content_path}')
         )
 
 
@@ -738,7 +753,9 @@ def summary_content(
     **kwargs,
 ) -> None:
     global summary_prompt, src_lang, target_lang
-    print(f'summary_content, src_lang={src_lang}, target_lang={target_lang}')
+    print(
+        f'{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}'
+    )
 
     full_content = ''
     for content in content_list:
@@ -755,15 +772,15 @@ def summary_content(
             full_content += content.extra_discription + line_breaker
 
         else:
-            print(f'unrecognized content: {content}')
+            print(format_log(f'unrecognized content: {content}'))
 
-    print(f'full content length: {len(full_content)}')
+    print(format_log(f'full content length: {len(full_content)}'))
     token_num, _ = estimate_token_num(full_content)
-    print(f'esitmated full content token num: {token_num}')
+    print(format_log(f'esitmated full content token num: {token_num}'))
     if token_num > max_summary_token_num:
         ratio = float(max_summary_token_num) / token_num
         print(
-            f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'
+            format_log(f'truncate full content by ratio: {ratio}, original length: {len(full_content)}')
         )
         full_content = full_content[:int(len(full_content) * ratio)]
 
@@ -772,16 +789,16 @@ def summary_content(
         target_lang=target_lang,
         content=full_content,
     )
-    print(f'formatted prompt: {formatted_promt}')
+    print(format_log(f'formatted prompt: {formatted_promt}'))
 
     summary = ollama_chat(prompt=formatted_promt)
     summary = post_text_process(summary)
-    print(f'content summary: {summary}')
+    print(format_log(f'content summary: {summary}'))
 
     summary_save_path = os.path.join(output_dir, 'summary.txt')
     with open(summary_save_path, 'w') as f:
         f.write(summary)
-        print(f'summary saved to {summary_save_path}')
+        print(format_log(f'summary saved to {summary_save_path}'))
 
     # save
     md_writer.write('# ' + '=' * 8 + '  Paper Summary  ' + '=' * 8 +
@@ -817,11 +834,11 @@ def process(
     - sys_image_folder: image save folder.
     - final_md_file_save_dir: folder for saving final md file.
     """
-    print(f'processing started, required steps: {steps}')
+    print(format_log(f'processing started, required steps: {steps}'))
 
     os.makedirs(output_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).rsplit('.', 1)[0]
-    print(f'file name without out suffix: {name_without_suff}')
+    print(format_log(f'file name without out suffix: {name_without_suff}'))
 
     # parse pdf
     content_list = parse_pdf(
@@ -844,10 +861,10 @@ def process(
         'sys_image_folder': sys_image_folder,
     }
     for step in steps:
-        print(f'processing step: {step}')
+        print(format_log(f'processing step: {step}'))
         step = step.strip()
         if step not in step_func:
-            print(f'step {step} not configured, ignore')
+            print(format_log(f'step {step} not configured, ignore'))
             continue
 
         func = step_func[step]
@@ -858,7 +875,7 @@ def process(
         )
 
     md_writer.close()
-    print(f'parsed markdown saved to {md_file_path}')
+    print(format_log(f'parsed markdown saved to {md_file_path}'))
 
 
 if __name__ == '__main__':
@@ -901,27 +918,29 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)
-    print(f'output dir: {output_dir}')
+    print(format_log(f'output dir: {output_dir}'))
 
     magic_config_path = os.path.realpath(args.magic_config_path)
-    print(f'magic config path: {magic_config_path}')
+    print(format_log(f'magic config path: {magic_config_path}'))
 
     sys_image_folder = os.path.realpath(args.sys_image_folder)
-    print(f'system image save folder: {sys_image_folder}')
+    print(format_log(f'system image save folder: {sys_image_folder}'))
 
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-    print(f'final md save folder: {final_md_file_save_dir}')
+    print(format_log(f'final md save folder: {final_md_file_save_dir}'))
 
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
 
     src_lang = lang_mapping[args.src_lang]
-    print(f'source language: {src_lang}')
+    print(format_log(f'source language: {src_lang}'))
 
     target_lang = lang_mapping[args.target_lang]
-    print(f'target language: {target_lang}')
+    print(format_log(f'target language: {target_lang}'))
 
-    print(f'processing file: {os.path.basename(args.file_path)}')
+    print(
+       format_log(f'processing file: {os.path.basename(args.file_path)}')
+    )
 
     process(
         file_path=args.file_path,

@@ -5,8 +5,7 @@ cd $(dirname "$0")
 echo "working directory $(pwd)"
 
 
-
-file_path='/Users/xcoder/obsidian/Profession/PDF/Learning Internal Representations by Error Propagation.pdf'
+file_path='/Users/xcoder/obsidian/Profession/PDF/BERT- Pre-training of Deep Bidirectional Transformers for Language Understanding.pdf'
 output_dir='./parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
@@ -14,7 +13,7 @@ src_lang='en'
 target_lang='zh'
 ollama_host='http://127.0.0.1:11434'
 ollama_model='qwen3:30b-a3b'
-steps='summary,translate,original'
+steps='summary,translate'
 
 
 python main.py \
