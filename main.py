@@ -285,9 +285,7 @@ def parse_pdf_job(
     # until parse method is called.
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
-    print(
-        format_log(f'setting magic pdf config path to {magic_config_path}')
-    )
+    print(format_log(f'setting magic pdf config path to {magic_config_path}'))
 
     from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
     from magic_pdf.data.dataset import PymuDocDataset
@@ -313,9 +311,7 @@ def parse_pdf_job(
         # read bytes
         reader = FileBasedDataReader("")
         pdf_bytes = reader.read(file_path)
-        print(
-            format_log(f"{file_path}: read bytes count: {len(pdf_bytes)}")
-        )
+        print(format_log(f"{file_path}: read bytes count: {len(pdf_bytes)}"))
 
         # process
         ds = PymuDocDataset(pdf_bytes)
@@ -438,8 +434,7 @@ def parse_pdf_job(
         # save content list
         pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
         print(
-            format_log(f'saving parsed content list to {pickle_content_path}')
-        )
+            format_log(f'saving parsed content list to {pickle_content_path}'))
         with open(pickle_content_path, 'wb') as f:
             pickle.dump(parsed_content_list, f)
 
@@ -475,8 +470,8 @@ def parse_pdf(
     with open(pickle_content_path, 'rb') as f:
         content_list = pickle.load(f)
     print(
-        format_log(f'loaded {len(content_list)} content from {pickle_content_path}')
-    )
+        format_log(
+            f'loaded {len(content_list)} content from {pickle_content_path}'))
 
     return content_list
 
@@ -537,7 +532,7 @@ def calculate_dynamic_ctx(history: list[Dict[str, Any]]) -> int:
 
 
 def ollama_chat(prompt: str, ) -> str:
-    global ollama_host, ollama_model
+    global ollama_host, ollama_model, gen_conf
 
     ollama_client = get_ollama_client()
 
@@ -561,7 +556,7 @@ def ollama_chat(prompt: str, ) -> str:
     response = ollama_client.chat(model=ollama_model,
                                   messages=history,
                                   options=options,
-                                  keep_alive=10)
+                                  keep_alive=600)
 
     ans = response["message"]["content"].strip()
     if '</think>' in ans:
@@ -580,8 +575,7 @@ def save_parsed_content(
         'sys_image_folder',
         os.path.expanduser("~/Pictures"),
     )
-    print(
-        format_log(f'using {sys_image_folder} as sys image save folder'))
+    print(format_log(f'using {sys_image_folder} as sys image save folder'))
     print(format_log(f'total {len(content_list)} contents'))
 
     md_writer.write('# ' + '=' * 8 + '  Original Content  ' + '=' * 8 +
@@ -634,9 +628,7 @@ def translate_text_content(text: str) -> str:
 
     max_byte_len = 4 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
-    print(
-        format_log(f'text byte length: {len(text)}, block num: {block_num}')
-    )
+    print(format_log(f'text byte length: {len(text)}, block num: {block_num}'))
     full_result = ""
     for i in range(block_num):
         segment = text[i * max_byte_len:(i + 1) * max_byte_len]
@@ -668,8 +660,7 @@ def translate_content(
         'sys_image_folder',
         os.path.expanduser("~/Pictures"),
     )
-    print(
-        format_log(f'using {sys_image_folder} as sys image save folder'))
+    print(format_log(f'using {sys_image_folder} as sys image save folder'))
 
     print(format_log(f'total {len(content_list)} contents'))
 
@@ -677,8 +668,9 @@ def translate_content(
                     line_breaker)
 
     for i, content in enumerate(content_list):
-        print(format_log(f'translating content {i}'))
-        print(format_log(f'content {i}, original content: {content}'))
+        print(
+            format_log(
+                f'translating content {i}, original content: {content}'))
         print('*' * 128)
         print('\n\n')
 
@@ -694,9 +686,7 @@ def translate_content(
         else:
             pass
 
-        print(format_log(f'translated content: {translated}'))
-        print('=' * 128)
-        print('\n\n')
+        print(format_log(f'translation done'))
 
         # save translated content
         lines = ''
@@ -731,6 +721,10 @@ def translate_content(
             pass
 
         lines = post_text_process(lines)
+        print(format_log(f'translated content: {lines}'))
+        print('=' * 128)
+        print('\n\n')
+
         md_writer.write(lines)
         md_writer.flush()
 
@@ -740,8 +734,9 @@ def translate_content(
     with open(translated_pickle_content_path, 'wb') as f:
         pickle.dump(content_list, f)
         print(
-            format_log(f'save translated  content list to {translated_pickle_content_path}')
-        )
+            format_log(
+                f'save translated  content list to {translated_pickle_content_path}'
+            ))
 
 
 # ==============================================================================
@@ -780,8 +775,9 @@ def summary_content(
     if token_num > max_summary_token_num:
         ratio = float(max_summary_token_num) / token_num
         print(
-            format_log(f'truncate full content by ratio: {ratio}, original length: {len(full_content)}')
-        )
+            format_log(
+                f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'
+            ))
         full_content = full_content[:int(len(full_content) * ratio)]
 
     formatted_promt = summary_prompt.format(
@@ -938,9 +934,7 @@ if __name__ == '__main__':
     target_lang = lang_mapping[args.target_lang]
     print(format_log(f'target language: {target_lang}'))
 
-    print(
-       format_log(f'processing file: {os.path.basename(args.file_path)}')
-    )
+    print(format_log(f'processing file: {os.path.basename(args.file_path)}'))
 
     process(
         file_path=args.file_path,
