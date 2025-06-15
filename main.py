@@ -672,8 +672,6 @@ def translate_content(
         print('*' * 128)
         print('\n\n')
 
-        time.sleep(0.2)
-
         if content.content_type == ContentType.TEXT:
             translated = translate_text_content(content.content)
             content.translated_content = translated
