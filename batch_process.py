@@ -1,32 +1,7 @@
 import os
-import re
 
 base_folder = '/Users/xcoder/obsidian/Profession/PDF/'
 log_file = "processing.log"
-
-ignore_list = [
-    'DeepSeek-R1 Incentivizing Reasoning Capability in LLMs via Reinforcement Learning.pdf',
-    'M3-Embedding- Multi-Linguality, Multi-Functionality, Multi-Granularity Text Embeddings Through Self-Knowledge Distillation.pdf',
-    '.DS_Store',
-]
-
-with open(log_file) as f:
-    for line in f.readlines():
-        log_pattern = "parsed markdown saved to"
-        if log_pattern not in line:
-            continue
-        file_path = line.split(log_pattern)[-1].strip()
-        name_without_suff = os.path.basename(file_path).rsplit('.', 1)[0]
-        print(f'found log for file: {name_without_suff}')
-        ignore_list.append(f"{name_without_suff}.pdf")
-
-ignore_list = list(set(ignore_list))
-print(f'total {len(ignore_list)} to ignore')
-
-file_list = os.listdir(base_folder)
-print(f'original total {len(file_list)} to process')
-file_list = sorted(list(set(file_list) - set(ignore_list)))
-print(f'after removing ignore file, total {len(file_list)} files to process')
 
 output_dir = './parsed_assets'
 sys_image_folder = '/Users/xcoder/obsidian/Profession/attachments'
@@ -36,6 +11,15 @@ target_lang = 'zh'
 ollama_host = 'http://127.0.0.1:11434'
 ollama_model = 'qwen3:30b-a3b'
 steps = 'summary,translate'
+
+md_files = os.listdir(final_md_file_save_dir)
+ignore_files = sorted([f.rsplit('.', 1)[0] + '.pdf'
+                       for f in md_files]) + ['.DS_Store']
+
+file_list = os.listdir(base_folder)
+print(f'original total {len(file_list)} to process')
+file_list = sorted(list(set(file_list) - set(ignore_files)))
+print(f'after removing ignore file, total {len(file_list)} files to process')
 
 for i, file_name in enumerate(file_list):
     print(f'{i}: begin processing {file_name}')
@@ -53,7 +37,7 @@ python main.py \
     --ollama_host={ollama_host} \
     --ollama_model={ollama_model} \
     --steps={steps} \
-    >> {log_file} 2>&1
+    > {log_file} 2>&1
 """
     print(f"command line to run: {cmd}")
     os.system(cmd)
