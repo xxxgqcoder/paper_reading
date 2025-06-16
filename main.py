@@ -486,7 +486,7 @@ def get_ollama_client():
 
     if the_ollama_client:
         return the_ollama_client
-    return Client(host=ollama_host)
+    return Client(host=ollama_host, timeout=15 * 60)  # timed out: 15min
 
 
 def calculate_dynamic_ctx(history: list[Dict[str, Any]]) -> int:
@@ -551,10 +551,13 @@ def ollama_chat(prompt: str, ) -> str:
     if "frequency_penalty" in gen_conf:
         options["frequency_penalty"] = gen_conf["frequency_penalty"]
 
-    response = ollama_client.chat(model=ollama_model,
-                                  messages=history,
-                                  options=options,
-                                  keep_alive=10)
+    try:
+        response = ollama_client.chat(model=ollama_model,
+                                      messages=history,
+                                      options=options,
+                                      keep_alive=10)
+    except Exception as e:
+        return f"Exception {e}"
 
     ans = response["message"]["content"].strip()
     if '</think>' in ans:
