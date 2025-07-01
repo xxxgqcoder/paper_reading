@@ -316,7 +316,7 @@ def parse_pdf_job(
 
         infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
             [new_pdf_bytes],
-            ['ch'],
+            [lang],
             parse_method=parse_method,
             formula_enable=True,
             table_enable=True,
@@ -327,14 +327,22 @@ def parse_pdf_job(
         local_image_dir, local_md_dir = prepare_env(asset_dir, file_name, parse_method)
         image_writer, md_writer = FileBasedDataWriter(local_image_dir), FileBasedDataWriter(local_md_dir)
 
-        middle_json = pipeline_result_to_middle_json(model_list, all_image_lists[0], all_pdf_docs[0], image_writer, lang, True, True)
+        middle_json = pipeline_result_to_middle_json(
+            model_list,
+            all_image_lists[0],
+            all_pdf_docs[0],
+            image_writer,
+            lang,
+            ocr_enabled_list[0],
+            True,
+        )
 
         pdf_info = middle_json["pdf_info"]
 
-        # draw layout
-        draw_layout_bbox(pdf_info, pdf_bytes, local_md_dir, f"{file_name}_layout.pdf")
-        draw_span_bbox(pdf_info, pdf_bytes, local_md_dir, f"{file_name}_span.pdf")
-        md_writer.write(f"{file_name}_origin.pdf", pdf_bytes)
+        # draw span and layout
+        draw_layout_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_layout.pdf")
+        draw_span_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_span.pdf")
+        md_writer.write(f"{file_name}_origin.pdf", new_pdf_bytes)
 
         # dump md
         image_dir = str(os.path.basename(local_image_dir))
@@ -355,7 +363,7 @@ def parse_pdf_job(
             json.dumps(middle_json, ensure_ascii=False, indent=4),
         )
 
-        # dump model output
+        # dump model json
         md_writer.write_string(
             f"{file_name}_model.json",
             json.dumps(model_json, ensure_ascii=False, indent=4),
