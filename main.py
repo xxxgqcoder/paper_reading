@@ -50,9 +50,7 @@ def time_it(func):
         begin = time.time_ns()
         ret = func(*kargs, **kwargs)
         elapse = (time.time_ns() - begin) // 1000000
-        print(
-            f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000)//1000}sec {elapse%60000%1000}ms to finish"
-        )
+        print(f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000)//1000}sec {elapse%60000%1000}ms to finish")
 
         return ret
 
@@ -279,6 +277,10 @@ def parse_pdf_job(
     - asset_dir: folder for saving parsed assets.
     - magic_config_path: magic pdf config path.
     """
+    import copy
+    import json
+    import os
+    from pathlib import Path
 
     # NOTE: magic_pdf package uses singleton design and the model isntance is
     # initialized when the module is imported, so postpone the import statement
@@ -287,10 +289,14 @@ def parse_pdf_job(
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
     print(format_log(f'setting magic pdf config path to {magic_config_path}'))
 
-    from magic_pdf.data.data_reader_writer import FileBasedDataWriter, FileBasedDataReader
-    from magic_pdf.data.dataset import PymuDocDataset
-    from magic_pdf.model.doc_analyze_by_custom_model import doc_analyze, ModelSingleton
-    from magic_pdf.config.enums import SupportedPdfParseMethod
+    from mineru.cli.common import convert_pdf_bytes_to_bytes_by_pypdfium2, prepare_env, read_fn
+    from mineru.data.data_reader_writer import FileBasedDataWriter
+    from mineru.utils.draw_bbox import draw_layout_bbox, draw_span_bbox
+    from mineru.utils.enum_class import MakeMode
+    from mineru.backend.pipeline.pipeline_analyze import doc_analyze as pipeline_doc_analyze
+    from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as pipeline_union_make
+    from mineru.backend.pipeline.model_json_to_middle_json import result_to_middle_json as pipeline_result_to_middle_json
+
     try:
         # prepare env
         try:
@@ -299,69 +305,94 @@ def parse_pdf_job(
             pass
         os.makedirs(asset_dir, exist_ok=True)
 
-        name_without_suff = os.path.basename(file_path).split(".")[0]
-        local_image_dir = os.path.join(asset_dir, "images")
-        local_md_dir = asset_dir
-        image_dir = os.path.basename(local_image_dir)
-        os.makedirs(local_image_dir, exist_ok=True)
+        file_name_list = []
+        pdf_bytes_list = []
+        lang_list = []
+        lang = 'ch'
+        start_page_id = 0
+        end_page_id = None
+        parse_method = 'auto'
+        p_formula_enable = True
+        p_table_enable = True
+        f_draw_layout_bbox = True
+        f_draw_span_bbox = True
+        f_dump_md = True
+        f_dump_middle_json = True
+        f_dump_model_output = True
+        f_dump_orig_pdf = True
+        f_dump_content_list = True
+        f_make_md_mode = MakeMode.MM_MD
 
-        image_writer = FileBasedDataWriter(local_image_dir)
-        md_writer = FileBasedDataWriter(local_md_dir)
+        file_name = str(Path(file_path).stem)
+        pdf_bytes = read_fn(file_path)
+        file_name_list.append(file_name)
+        pdf_bytes_list.append(pdf_bytes)
+        lang_list.append(lang)
 
-        # read bytes
-        reader = FileBasedDataReader("")
-        pdf_bytes = reader.read(file_path)
-        print(format_log(f"{file_path}: read bytes count: {len(pdf_bytes)}"))
+        new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, start_page_id, end_page_id)
 
-        # process
-        ds = PymuDocDataset(pdf_bytes)
+        infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
+            [new_pdf_bytes],
+            ['ch'],
+            parse_method=parse_method,
+            formula_enable=p_formula_enable,
+            table_enable=p_table_enable,
+        )
 
-        # inference
-        infer_result = ds.apply(doc_analyze,
-                                ds.classify() == SupportedPdfParseMethod.OCR)
-        pipe_result = infer_result.pipe_txt_mode(image_writer)
+        for idx, model_list in enumerate(infer_results):
+            model_json = copy.deepcopy(model_list)
+            pdf_file_name = file_name_list[idx]
+            local_image_dir, local_md_dir = prepare_env(asset_dir, pdf_file_name, parse_method)
+            image_writer, md_writer = FileBasedDataWriter(local_image_dir), FileBasedDataWriter(local_md_dir)
 
-        # draw model result on each page
-        infer_result.draw_model(
-            os.path.join(local_md_dir, f"{name_without_suff}_model.pdf"))
+            images_list = all_image_lists[idx]
+            pdf_doc = all_pdf_docs[idx]
+            _lang = lang_list[idx]
+            _ocr_enable = ocr_enabled_list[idx]
+            middle_json = pipeline_result_to_middle_json(model_list, images_list, pdf_doc, image_writer, _lang, _ocr_enable, p_formula_enable)
 
-        # get model inference result
-        model_inference_result = infer_result.get_infer_res()
+            pdf_info = middle_json["pdf_info"]
 
-        # draw layout result on each page
-        pipe_result.draw_layout(
-            os.path.join(local_md_dir, f"{name_without_suff}_layout.pdf"))
+            pdf_bytes = pdf_bytes_list[idx]
+            if f_draw_layout_bbox:
+                draw_layout_bbox(pdf_info, pdf_bytes, local_md_dir, f"{pdf_file_name}_layout.pdf")
 
-        # draw spans result on each page
-        pipe_result.draw_span(
-            os.path.join(local_md_dir, f"{name_without_suff}_spans.pdf"))
+            if f_draw_span_bbox:
+                draw_span_bbox(pdf_info, pdf_bytes, local_md_dir, f"{pdf_file_name}_span.pdf")
 
-        # get markdown content
-        md_content = pipe_result.get_markdown(image_dir)
+            if f_dump_orig_pdf:
+                md_writer.write(f"{pdf_file_name}_origin.pdf", pdf_bytes)
 
-        # dump markdown
-        pipe_result.dump_md(md_writer, f"{name_without_suff}.md", image_dir)
+            if f_dump_md:
+                image_dir = str(os.path.basename(local_image_dir))
+                md_content_str = pipeline_union_make(pdf_info, f_make_md_mode, image_dir)
+                md_writer.write_string(f"{pdf_file_name}.md", md_content_str)
 
-        # get content list content
-        content_list = pipe_result.get_content_list(image_dir)
+            if f_dump_content_list:
+                image_dir = str(os.path.basename(local_image_dir))
+                content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
+                md_writer.write_string(
+                    f"{pdf_file_name}_content_list.json",
+                    json.dumps(content_list, ensure_ascii=False, indent=4),
+                )
 
-        # dump content list
-        pipe_result.dump_content_list(
-            md_writer, f"{name_without_suff}_content_list.json", image_dir)
+            if f_dump_middle_json:
+                md_writer.write_string(
+                    f"{pdf_file_name}_middle.json",
+                    json.dumps(middle_json, ensure_ascii=False, indent=4),
+                )
 
-        # get middle json
-        middle_json_content = pipe_result.get_middle_json()
-
-        # dump middle json
-        pipe_result.dump_middle_json(md_writer,
-                                     f'{name_without_suff}_middle.json')
+            if f_dump_model_output:
+                md_writer.write_string(
+                    f"{pdf_file_name}_model.json",
+                    json.dumps(model_json, ensure_ascii=False, indent=4),
+                )
 
         # update image path to absolute path
         for content in content_list:
             img_path = content.get('img_path', None)
             if img_path:
-                content['img_path'] = os.path.realpath(
-                    os.path.join(asset_dir, img_path))
+                content['img_path'] = os.path.realpath(os.path.join(asset_dir, pdf_file_name, parse_method, img_path))
 
         # parse content list
         parsed_content_list = []
@@ -374,8 +405,7 @@ def parse_pdf_job(
                 if raw_content.get('text_level', None) == 1:
                     text = "# " + text
                 content = Content(
-                    content_type=ContentType.TEXT
-                    if content_type == 'text' else ContentType.EQUATION,
+                    content_type=ContentType.TEXT if content_type == 'text' else ContentType.EQUATION,
                     content=text,
                     extra_discription="",
                     content_path=None,
@@ -433,8 +463,7 @@ def parse_pdf_job(
 
         # save content list
         pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-        print(
-            format_log(f'saving parsed content list to {pickle_content_path}'))
+        print(format_log(f'saving parsed content list to {pickle_content_path}'))
         with open(pickle_content_path, 'wb') as f:
             pickle.dump(parsed_content_list, f)
 
@@ -469,9 +498,7 @@ def parse_pdf(
     print(format_log(f'loading content list from {pickle_content_path}'))
     with open(pickle_content_path, 'rb') as f:
         content_list = pickle.load(f)
-    print(
-        format_log(
-            f'loaded {len(content_list)} content from {pickle_content_path}'))
+    print(format_log(f'loaded {len(content_list)} content from {pickle_content_path}'))
 
     return content_list
 
@@ -552,10 +579,7 @@ def ollama_chat(prompt: str, ) -> str:
         options["frequency_penalty"] = gen_conf["frequency_penalty"]
 
     try:
-        response = ollama_client.chat(model=ollama_model,
-                                      messages=history,
-                                      options=options,
-                                      keep_alive=10)
+        response = ollama_client.chat(model=ollama_model, messages=history, options=options, keep_alive=10)
     except Exception as e:
         return f"Exception {e}"
 
@@ -579,8 +603,7 @@ def save_parsed_content(
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
     print(format_log(f'total {len(content_list)} contents'))
 
-    md_writer.write('# ' + '=' * 8 + '  Original Content  ' + '=' * 8 +
-                    line_breaker)
+    md_writer.write('# ' + '=' * 8 + '  Original Content  ' + '=' * 8 + line_breaker)
 
     for i, content in enumerate(content_list):
         lines = ''
@@ -603,8 +626,7 @@ def save_parsed_content(
             lines += content.extra_discription + line_breaker
 
         elif content.content_type == ContentType.TABLE:
-            lines += str(
-                content.content) + content.extra_discription + line_breaker
+            lines += str(content.content) + content.extra_discription + line_breaker
 
             # copy image
             if content.content_path:
@@ -665,13 +687,10 @@ def translate_content(
 
     print(format_log(f'total {len(content_list)} contents'))
 
-    md_writer.write('# ' + '=' * 8 + '  Translated Content  ' + '=' * 8 +
-                    line_breaker)
+    md_writer.write('# ' + '=' * 8 + '  Translated Content  ' + '=' * 8 + line_breaker)
 
     for i, content in enumerate(content_list):
-        print(
-            format_log(
-                f'translating content {i}, original content: {content}'))
+        print(format_log(f'translating content {i}, original content: {content}'))
         print('*' * 128)
         print('\n\n')
 
@@ -730,14 +749,10 @@ def translate_content(
         md_writer.flush()
 
     # save pickle result
-    translated_pickle_content_path = os.path.join(
-        output_dir, 'translated_content_list.pickle')
+    translated_pickle_content_path = os.path.join(output_dir, 'translated_content_list.pickle')
     with open(translated_pickle_content_path, 'wb') as f:
         pickle.dump(content_list, f)
-        print(
-            format_log(
-                f'save translated  content list to {translated_pickle_content_path}'
-            ))
+        print(format_log(f'save translated  content list to {translated_pickle_content_path}'))
 
 
 # ==============================================================================
@@ -749,9 +764,7 @@ def summary_content(
     **kwargs,
 ) -> None:
     global summary_prompt, src_lang, target_lang
-    print(
-        f'{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}'
-    )
+    print(f'{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}')
 
     full_content = ''
     for content in content_list:
@@ -775,10 +788,7 @@ def summary_content(
     print(format_log(f'esitmated full content token num: {token_num}'))
     if token_num > max_summary_token_num:
         ratio = float(max_summary_token_num) / token_num
-        print(
-            format_log(
-                f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'
-            ))
+        print(format_log(f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'))
         full_content = full_content[:int(len(full_content) * ratio)]
 
     formatted_promt = summary_prompt.format(
@@ -798,8 +808,7 @@ def summary_content(
         print(format_log(f'summary saved to {summary_save_path}'))
 
     # save
-    md_writer.write('# ' + '=' * 8 + '  Paper Summary  ' + '=' * 8 +
-                    line_breaker)
+    md_writer.write('# ' + '=' * 8 + '  Paper Summary  ' + '=' * 8 + line_breaker)
     md_writer.write(summary + line_breaker)
     md_writer.write('-' * 8 + line_breaker)
     md_writer.flush()
@@ -879,38 +888,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Example of argparse usage.")
 
     parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument("--output_dir",
-                        help="path to assets folder",
-                        default="./parsed_asset")
-    parser.add_argument("--ollama_host",
-                        help="ollama host",
-                        default="http://127.0.0.1:11434")
-    parser.add_argument("--ollama_model",
-                        help="ollama model name",
-                        default="qwen3:30b-a3b")
-    parser.add_argument("--magic_config_path",
-                        help="magic pdf config path",
-                        default="./magic-pdf.json")
+    parser.add_argument("--output_dir", help="path to assets folder", default="./parsed_asset")
+    parser.add_argument("--ollama_host", help="ollama host", default="http://127.0.0.1:11434")
+    parser.add_argument("--ollama_model", help="ollama model name", default="qwen3:30b-a3b")
+    parser.add_argument("--magic_config_path", help="magic pdf config path", default="./magic-pdf.json")
 
-    parser.add_argument("--sys_image_folder",
-                        help="final image save folder",
-                        default="./md_images")
+    parser.add_argument("--sys_image_folder", help="final image save folder", default="./md_images")
 
-    parser.add_argument("--final_md_file_save_dir",
-                        help="final md file save folder",
-                        default=".")
+    parser.add_argument("--final_md_file_save_dir", help="final md file save folder", default=".")
 
-    parser.add_argument("--src_lang",
-                        help="source paper language",
-                        default="en")
+    parser.add_argument("--src_lang", help="source paper language", default="en")
 
-    parser.add_argument("--target_lang",
-                        help="translate target language",
-                        default="zh")
+    parser.add_argument("--target_lang", help="translate target language", default="zh")
 
-    parser.add_argument("--steps",
-                        help="required steps",
-                        default="summary,translate,original")
+    parser.add_argument("--steps", help="required steps", default="summary,translate,original")
 
     args = parser.parse_args()
 
