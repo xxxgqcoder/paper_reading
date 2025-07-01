@@ -267,8 +267,7 @@ def parse_pdf_job(
     by key `type`). All captions are stored in each block's caption key, for 
     example, caption of a parsed image is saved in `img_caption` key of the block.
 
-    Refer [MinerU API demo](https://mineru.readthedocs.io/en/latest/user_guide/usage/api.html) 
-    for more details.
+    https://github.com/opendatalab/MinerU/blob/master/demo/demo.py for more details.
 
     Parsed result is saved to `asset_dir`, the content list will be saved using pickle as well.
 
@@ -305,29 +304,13 @@ def parse_pdf_job(
             pass
         os.makedirs(asset_dir, exist_ok=True)
 
-        file_name_list = []
-        pdf_bytes_list = []
-        lang_list = []
         lang = 'ch'
         start_page_id = 0
         end_page_id = None
         parse_method = 'auto'
-        p_formula_enable = True
-        p_table_enable = True
-        f_draw_layout_bbox = True
-        f_draw_span_bbox = True
-        f_dump_md = True
-        f_dump_middle_json = True
-        f_dump_model_output = True
-        f_dump_orig_pdf = True
-        f_dump_content_list = True
-        f_make_md_mode = MakeMode.MM_MD
 
         file_name = str(Path(file_path).stem)
         pdf_bytes = read_fn(file_path)
-        file_name_list.append(file_name)
-        pdf_bytes_list.append(pdf_bytes)
-        lang_list.append(lang)
 
         new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, start_page_id, end_page_id)
 
@@ -335,64 +318,54 @@ def parse_pdf_job(
             [new_pdf_bytes],
             ['ch'],
             parse_method=parse_method,
-            formula_enable=p_formula_enable,
-            table_enable=p_table_enable,
+            formula_enable=True,
+            table_enable=True,
         )
 
-        for idx, model_list in enumerate(infer_results):
-            model_json = copy.deepcopy(model_list)
-            pdf_file_name = file_name_list[idx]
-            local_image_dir, local_md_dir = prepare_env(asset_dir, pdf_file_name, parse_method)
-            image_writer, md_writer = FileBasedDataWriter(local_image_dir), FileBasedDataWriter(local_md_dir)
+        model_list = infer_results[0]
+        model_json = copy.deepcopy(model_list)
+        local_image_dir, local_md_dir = prepare_env(asset_dir, file_name, parse_method)
+        image_writer, md_writer = FileBasedDataWriter(local_image_dir), FileBasedDataWriter(local_md_dir)
 
-            images_list = all_image_lists[idx]
-            pdf_doc = all_pdf_docs[idx]
-            _lang = lang_list[idx]
-            _ocr_enable = ocr_enabled_list[idx]
-            middle_json = pipeline_result_to_middle_json(model_list, images_list, pdf_doc, image_writer, _lang, _ocr_enable, p_formula_enable)
+        middle_json = pipeline_result_to_middle_json(model_list, all_image_lists[0], all_pdf_docs[0], image_writer, lang, True, True)
 
-            pdf_info = middle_json["pdf_info"]
+        pdf_info = middle_json["pdf_info"]
 
-            pdf_bytes = pdf_bytes_list[idx]
-            if f_draw_layout_bbox:
-                draw_layout_bbox(pdf_info, pdf_bytes, local_md_dir, f"{pdf_file_name}_layout.pdf")
+        # draw layout
+        draw_layout_bbox(pdf_info, pdf_bytes, local_md_dir, f"{file_name}_layout.pdf")
+        draw_span_bbox(pdf_info, pdf_bytes, local_md_dir, f"{file_name}_span.pdf")
+        md_writer.write(f"{file_name}_origin.pdf", pdf_bytes)
 
-            if f_draw_span_bbox:
-                draw_span_bbox(pdf_info, pdf_bytes, local_md_dir, f"{pdf_file_name}_span.pdf")
+        # dump md
+        image_dir = str(os.path.basename(local_image_dir))
+        md_content_str = pipeline_union_make(pdf_info, MakeMode.MM_MD, image_dir)
+        md_writer.write_string(f"{file_name}.md", md_content_str)
 
-            if f_dump_orig_pdf:
-                md_writer.write(f"{pdf_file_name}_origin.pdf", pdf_bytes)
+        # dump content list
+        image_dir = str(os.path.basename(local_image_dir))
+        content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
+        md_writer.write_string(
+            f"{file_name}_content_list.json",
+            json.dumps(content_list, ensure_ascii=False, indent=4),
+        )
 
-            if f_dump_md:
-                image_dir = str(os.path.basename(local_image_dir))
-                md_content_str = pipeline_union_make(pdf_info, f_make_md_mode, image_dir)
-                md_writer.write_string(f"{pdf_file_name}.md", md_content_str)
+        # dump middle json
+        md_writer.write_string(
+            f"{file_name}_middle.json",
+            json.dumps(middle_json, ensure_ascii=False, indent=4),
+        )
 
-            if f_dump_content_list:
-                image_dir = str(os.path.basename(local_image_dir))
-                content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
-                md_writer.write_string(
-                    f"{pdf_file_name}_content_list.json",
-                    json.dumps(content_list, ensure_ascii=False, indent=4),
-                )
-
-            if f_dump_middle_json:
-                md_writer.write_string(
-                    f"{pdf_file_name}_middle.json",
-                    json.dumps(middle_json, ensure_ascii=False, indent=4),
-                )
-
-            if f_dump_model_output:
-                md_writer.write_string(
-                    f"{pdf_file_name}_model.json",
-                    json.dumps(model_json, ensure_ascii=False, indent=4),
-                )
+        # dump model output
+        md_writer.write_string(
+            f"{file_name}_model.json",
+            json.dumps(model_json, ensure_ascii=False, indent=4),
+        )
 
         # update image path to absolute path
         for content in content_list:
             img_path = content.get('img_path', None)
             if img_path:
-                content['img_path'] = os.path.realpath(os.path.join(asset_dir, pdf_file_name, parse_method, img_path))
+                content['img_path'] = os.path.realpath(os.path.join(asset_dir, file_name, parse_method, img_path))
 
         # parse content list
         parsed_content_list = []
