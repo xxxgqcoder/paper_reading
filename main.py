@@ -425,8 +425,10 @@ def parse_pdf_job(
 
                 img_path = raw_content.get('img_path', None)
                 text = ""
-                if table_body:
-                    text += str(table_body) + line_breaker
+                # NOTE: donot append parsed table body to content
+                # if table_body:
+                #     text += str(table_body) + line_breaker
+
                 if table_caption:
                     text += table_caption + line_breaker
                 if table_footnote:
