@@ -499,48 +499,6 @@ def get_ollama_client():
     return Client(host=ollama_host, timeout=15 * 60)  # timed out: 15min
 
 
-def calculate_dynamic_ctx(history: list[Dict[str, Any]]) -> int:
-    """
-    Calculate dynamic context window size
-
-    Args:
-    - history: conversation history, a list of json objects.
-
-    """
-
-    def count_tokens(text):
-        # Simple calculation: 1 token per ASCII character
-        # 2 tokens for non-ASCII characters (Chinese, Japanese, Korean, etc.)
-        total = 0
-        for char in text:
-            if ord(char) < 128:  # ASCII characters
-                total += 1
-            else:  # Non-ASCII characters (Chinese, Japanese, Korean, etc.)
-                total += 2
-        return total
-
-    # Calculate total tokens for all messages
-    total_tokens = 0
-    for message in history:
-        content = message.get("content", "")
-        # Calculate content tokens
-        content_tokens = estimate_token_num(content)[0]
-        # Add role marker token overhead
-        role_tokens = 4
-        total_tokens += content_tokens + role_tokens
-
-    # Apply 1.2x buffer ratio
-    total_tokens_with_buffer = int(total_tokens * 1.2)
-
-    if total_tokens_with_buffer <= 8192:
-        ctx_size = 8192
-    else:
-        ctx_multiplier = (total_tokens_with_buffer // 8192) + 1
-        ctx_size = ctx_multiplier * 8192
-
-    return ctx_size
-
-
 def ollama_chat(prompt: str, ) -> str:
     global ollama_host, ollama_model, gen_conf
 
