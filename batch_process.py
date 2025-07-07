@@ -1,9 +1,9 @@
 import os
 
-base_folder = '/Users/xcoder/obsidian/Profession/PDF/'
+base_folder = '/Users/xcoder/obsidian/Profession/PDF'
 log_file = "processing.log"
 
-output_dir = './parsed_assets'
+output_dir = './tmp/parsed_assets'
 sys_image_folder = '/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir = '/Users/xcoder/obsidian/Profession/Paper Reading'
 src_lang = 'en'
@@ -13,8 +13,7 @@ ollama_model = 'qwen3:30b-a3b'
 steps = 'summary,translate'
 
 md_files = os.listdir(final_md_file_save_dir)
-ignore_files = sorted([f.rsplit('.', 1)[0] + '.pdf'
-                       for f in md_files]) + ['.DS_Store']
+ignore_files = sorted([f.rsplit('.', 1)[0] + '.pdf' for f in md_files]) + ['.DS_Store']
 
 file_list = os.listdir(base_folder)
 print(f'original total {len(file_list)} to process')

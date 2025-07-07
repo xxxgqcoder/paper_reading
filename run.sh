@@ -4,8 +4,7 @@ set -e
 cd $(dirname "$0")
 echo "working directory $(pwd)"
 
-
-file_path='/Users/xcoder/obsidian/Profession/PDF/BERT- Pre-training of Deep Bidirectional Transformers for Language Understanding.pdf'
+file_path='/Users/xcoder/obsidian/Profession/PDF/YaRN- Efficient Context Window Extension of Large Language Models.pdf'
 output_dir='./parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
