@@ -833,17 +833,11 @@ if __name__ == '__main__':
     parser.add_argument("--ollama_host", help="ollama host", default="http://127.0.0.1:11434")
     parser.add_argument("--ollama_model", help="ollama model name", default="qwen3:30b-a3b")
     parser.add_argument("--magic_config_path", help="magic pdf config path", default="./magic-pdf.json")
-
     parser.add_argument("--sys_image_folder", help="final image save folder", default="./md_images")
-
     parser.add_argument("--final_md_file_save_dir", help="final md file save folder", default=".")
-
     parser.add_argument("--src_lang", help="source paper language", default="en")
-
     parser.add_argument("--target_lang", help="translate target language", default="zh")
-
     parser.add_argument("--steps", help="required steps", default="summary,translate,original")
-
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)

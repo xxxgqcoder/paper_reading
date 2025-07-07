@@ -30,7 +30,7 @@
         }
     },
     "models-dir": {
-        "pipeline": "/Users/xcoder/projects/tiny_rag/assets/MinerU/models",
+        "pipeline": "~/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/52a5c0f44ec3e52356192988ea74065a854fb735/models",
         "vlm": ""
     },
     "config_version": "1.3.0"
