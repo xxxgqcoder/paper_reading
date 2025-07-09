@@ -1,16 +1,20 @@
 import os
 
+# where pdf files are stored
 base_folder = '/Users/xcoder/obsidian/Profession/PDF'
-log_file = "processing.log"
-
-output_dir = './tmp/parsed_assets'
+# folder for saving image files
 sys_image_folder = '/Users/xcoder/obsidian/Profession/attachments'
+# folder for saving final markdown file
 final_md_file_save_dir = '/Users/xcoder/obsidian/Profession/Paper Reading'
+# ollama_model = 'qwen3:30b-a3b'
+ollama_model = 'qwen3:32b'
+steps = 'summary,translate'
+
+log_file = "processing.log"
+output_dir = './tmp/parsed_assets'
 src_lang = 'en'
 target_lang = 'zh'
 ollama_host = 'http://127.0.0.1:11434'
-ollama_model = 'qwen3:30b-a3b'
-steps = 'summary,translate'
 
 md_files = os.listdir(final_md_file_save_dir)
 ignore_files = sorted([f.rsplit('.', 1)[0] + '.pdf' for f in md_files]) + ['.DS_Store']
