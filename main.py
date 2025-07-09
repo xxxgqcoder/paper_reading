@@ -683,7 +683,6 @@ def translate_content(
 
         lines = post_text_process(lines)
         print(format_log(f'translated content: {lines}'))
-        print('-' * 128)
         print('\n\n')
 
         md_writer.write(lines)
