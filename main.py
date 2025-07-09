@@ -42,7 +42,7 @@ summary_prompt = """
 max_summary_token_num = 80 * 1024
 
 
-# ==============================================================================
+# ------------------------------------------------------------------------------
 # util funcs
 def time_it(func):
 
@@ -182,7 +182,7 @@ def format_log(text: str) -> str:
     return f"{datetime.now()}: {text}"
 
 
-# ==============================================================================
+# ------------------------------------------------------------------------------
 # parser
 class ContentType(StrEnum):
     TEXT = "text"
@@ -486,7 +486,7 @@ def parse_pdf(
     return content_list
 
 
-# ==============================================================================
+# ------------------------------------------------------------------------------
 # ollama interface
 the_ollama_client = None
 
@@ -530,7 +530,7 @@ def ollama_chat(prompt: str, ) -> str:
     return ans.strip()
 
 
-# ==============================================================================
+# ------------------------------------------------------------------------------
 # save parsed content
 def save_parsed_content(
     md_writer: TextIOWrapper,
@@ -584,7 +584,7 @@ def save_parsed_content(
         md_writer.flush()
 
 
-# ==============================================================================
+# ------------------------------------------------------------------------------
 # translate func
 def translate_text_content(text: str) -> str:
     if is_empty(text):
@@ -696,7 +696,7 @@ def translate_content(
         print(format_log(f'save translated  content list to {translated_pickle_content_path}'))
 
 
-# ==============================================================================
+# ------------------------------------------------------------------------------
 # summary func
 @time_it
 def summary_content(
