@@ -632,7 +632,7 @@ def translate_content(
 
     for i, content in enumerate(content_list):
         print(format_log(f'translating content {i}, original content: {content}'))
-        print('*' * 128)
+        print('-' * 128)
         print('\n\n')
 
         if content.content_type == ContentType.TEXT:
@@ -683,7 +683,7 @@ def translate_content(
 
         lines = post_text_process(lines)
         print(format_log(f'translated content: {lines}'))
-        print('=' * 128)
+        print('-' * 128)
         print('\n\n')
 
         md_writer.write(lines)
