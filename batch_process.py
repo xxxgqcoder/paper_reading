@@ -6,8 +6,8 @@ base_folder = '/Users/xcoder/obsidian/Profession/PDF'
 sys_image_folder = '/Users/xcoder/obsidian/Profession/attachments'
 # folder for saving final markdown file
 final_md_file_save_dir = '/Users/xcoder/obsidian/Profession/Paper Reading'
-# ollama_model = 'qwen3:30b-a3b'
-ollama_model = 'qwen3:32b'
+ollama_model = 'qwen3:30b-a3b'
+# ollama_model = 'qwen3:32b'
 steps = 'summary,translate'
 
 log_file = "processing.log"
@@ -40,7 +40,7 @@ python main.py \
     --ollama_host={ollama_host} \
     --ollama_model={ollama_model} \
     --steps={steps} \
-    > {log_file} 2>&1
+    >> {log_file} 2>&1
 """
     print(f"command line to run: {cmd}")
     os.system(cmd)
