@@ -1,6 +1,17 @@
 import os
 
 base_folder = '/Users/xcoder/obsidian/Profession/PDF'
+<<<<<<< HEAD
+=======
+# folder for saving image files
+sys_image_folder = '/Users/xcoder/obsidian/Profession/attachments'
+# folder for saving final markdown file
+final_md_file_save_dir = '/Users/xcoder/obsidian/Profession/Paper Reading'
+ollama_model = 'qwen3:30b-a3b'
+# ollama_model = 'qwen3:32b'
+steps = 'summary,translate'
+
+>>>>>>> bf2c4ee (append log)
 log_file = "processing.log"
 
 output_dir = './tmp/parsed_assets'
@@ -36,7 +47,7 @@ python main.py \
     --ollama_host={ollama_host} \
     --ollama_model={ollama_model} \
     --steps={steps} \
-    > {log_file} 2>&1
+    >> {log_file} 2>&1
 """
     print(f"command line to run: {cmd}")
     os.system(cmd)
