@@ -37,7 +37,15 @@ translate_prompt = """
 summary_prompt = """
 你是一个论文阅读助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容需要包括论文主要创新点。
 
+下面是论文内容
+
+
 {content}
+
+
+上面是论文内容
+
+使用{target_lang}语言，总结{src_lang}论文内容，总结的内容需要包括论文主要创新点。
 """
 max_summary_token_num = 80 * 1024
 
