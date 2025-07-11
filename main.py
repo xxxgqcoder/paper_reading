@@ -294,6 +294,7 @@ def parse_pdf_job(
     # until parse method is called.
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
+    os.environ["MINERU_MODEL_SOURCE"] = 'local'
     print(format_log(f'setting magic pdf config path to {magic_config_path}'))
 
     from mineru.cli.common import convert_pdf_bytes_to_bytes_by_pypdfium2, prepare_env, read_fn
