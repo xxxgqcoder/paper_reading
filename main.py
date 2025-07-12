@@ -741,6 +741,8 @@ def summary_content(
         print(format_log(f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'))
         full_content = full_content[:int(len(full_content) * ratio)]
 
+    full_content = full_content.encode('utf-8', errors='ignore').decode('utf-8')
+
     formatted_promt = summary_prompt.format(
         src_lang=src_lang,
         target_lang=target_lang,
