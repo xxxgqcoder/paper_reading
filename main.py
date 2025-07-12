@@ -92,7 +92,7 @@ def run_once(func):
     return wrapper
 
 
-def is_empty(text: str):
+def is_empty(text: str) -> bool:
     text = safe_strip(text)
     if text is None:
         return True
