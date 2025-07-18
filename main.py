@@ -514,8 +514,6 @@ def ollama_chat(prompt: str, ) -> str:
     ollama_client = get_ollama_client()
 
     history = [{'role': 'user', 'content': prompt}]
-    if "max_tokens" in gen_conf:
-        del gen_conf["max_tokens"]
     options = {}
     if "temperature" in gen_conf:
         options["temperature"] = gen_conf["temperature"]
