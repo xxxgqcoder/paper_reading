@@ -15,7 +15,7 @@ from datetime import datetime
 from ollama import Client
 from strenum import StrEnum
 
-line_breaker = '\n\n\n\n'
+line_breaker = '\n\n'
 
 # global variables
 ollama_host = 'http://127.0.0.1:11434'
@@ -29,9 +29,13 @@ gen_conf = {
     'frequency_penalty': 0.7,
 }
 translate_prompt = """
-/no think 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+
+下面是需要翻译的内容：
 
 {content}
+
+上面是需要翻译的内容
 """
 
 summary_prompt = """
@@ -46,6 +50,9 @@ summary_prompt = """
 上面是论文内容
 
 使用{target_lang}语言，总结{src_lang}论文内容，总结的内容需要包括论文主要创新点。
+
+注意：
+- 忽略论文引用文献部分内容，只总结论文正文部分。
 """
 max_summary_token_num = 80 * 1024
 
@@ -252,8 +259,7 @@ def parse_pdf_job(
     magic_config_path: str,
 ) -> None:
     """
-    Parse PDF content and return content list. The result is a list of json 
-    oject representing a pdf content block.
+    Parse PDF content and return content list. The result is a list of json object representing a pdf content block.
     
     Dict object key explanation:
         - `img_caption`: the image caption.
@@ -268,14 +274,12 @@ def parse_pdf_job(
         - `text_level`: used in headline block.
         - `type`: block type, can be one of 'equation', 'image', 'table', 'text'.
     
-    Typical paper parsed content is organized by list of content block. Headlines
-    will stored in one separated block, with `text_level` = 1 while regular content
-    block's `text_level` key is missing. Headline blocks are followed by regular
-    content block, including `text`, `equation`, `table` and `image` (distinguished 
-    by key `type`). All captions are stored in each block's caption key, for 
-    example, caption of a parsed image is saved in `img_caption` key of the block.
+    Typical parsed paper content is organized by list of content block.
+    Headlines will stored in one separated block, with `text_level` = 1 while regular content block's `text_level` key is missing. 
+    Headline blocks are followed by regular content block, including `text`, `equation`, `table` and `image` (distinguished by key `type`). 
+    All captions are stored in each block's caption key, for example, caption of a parsed image is saved in `img_caption` key of the block.
 
-    https://github.com/opendatalab/MinerU/blob/master/demo/demo.py for more details.
+    Please refer https://github.com/opendatalab/MinerU/blob/master/demo/demo.py for more details.
 
     Parsed result is saved to `asset_dir`, the content list will be saved using pickle as well.
 
@@ -361,22 +365,13 @@ def parse_pdf_job(
         # dump content list
         image_dir = str(os.path.basename(local_image_dir))
         content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
-        md_writer.write_string(
-            f"{file_name}_content_list.json",
-            json.dumps(content_list, ensure_ascii=False, indent=4),
-        )
+        md_writer.write_string(f"{file_name}_content_list.json", json.dumps(content_list, ensure_ascii=False, indent=4))
 
         # dump middle json
-        md_writer.write_string(
-            f"{file_name}_middle.json",
-            json.dumps(middle_json, ensure_ascii=False, indent=4),
-        )
+        md_writer.write_string(f"{file_name}_middle.json", json.dumps(middle_json, ensure_ascii=False, indent=4))
 
         # dump model json
-        md_writer.write_string(
-            f"{file_name}_model.json",
-            json.dumps(model_json, ensure_ascii=False, indent=4),
-        )
+        md_writer.write_string(f"{file_name}_model.json", json.dumps(model_json, ensure_ascii=False, indent=4))
 
         # update image path to absolute path
         for content in content_list:
@@ -544,10 +539,7 @@ def save_parsed_content(
     content_list: list[Content],
     **kwargs,
 ) -> None:
-    sys_image_folder = kwargs.get(
-        'sys_image_folder',
-        os.path.expanduser("~/Pictures"),
-    )
+    sys_image_folder = kwargs.get('sys_image_folder', os.path.expanduser("~/Pictures"))
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
     print(format_log(f'total {len(content_list)} contents'))
 
