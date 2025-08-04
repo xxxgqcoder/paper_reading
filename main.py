@@ -8,7 +8,7 @@ import os
 import traceback
 import math
 from io import TextIOWrapper
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
@@ -36,10 +36,13 @@ translate_prompt = """
 {content}
 
 上面是需要翻译的内容
+
+注意：
+- 如果要翻译的内容为引用文献、算法伪代码、代码，则不需要翻译，直接返回原文
 """
 
 summary_prompt = """
-你是一个论文阅读助手，使用{target_lang}语言，总结下面{src_lang}论文内容，总结的内容需要包括论文主要创新点。
+你是一个论文阅读助手，阅读下面的{src_lang}论文内容，并完成指令。
 
 下面是论文内容
 
@@ -49,7 +52,7 @@ summary_prompt = """
 
 上面是论文内容
 
-使用{target_lang}语言，总结{src_lang}论文内容，总结的内容需要包括论文主要创新点。
+指令：使用{target_lang}语言，总结{src_lang}论文内容，总结的内容需要包括论文主要创新点。
 
 注意：
 - 忽略论文引用文献部分内容，只总结论文正文部分。
@@ -59,9 +62,9 @@ max_summary_token_num = 80 * 1024
 
 # ------------------------------------------------------------------------------
 # util funcs
-def time_it(func):
+def time_it(func) -> Callable[..., Any]:
 
-    def wrapper(*kargs, **kwargs):
+    def wrapper(*kargs, **kwargs) -> Any:
         begin = time.time_ns()
         ret = func(*kargs, **kwargs)
         elapse = (time.time_ns() - begin) // 1000000
@@ -85,11 +88,11 @@ def safe_strip(raw: str) -> str:
     return raw.strip()
 
 
-def run_once(func):
+def run_once(func) -> Callable[..., Any]:
     has_run = False
     ret = None
 
-    def wrapper(*args, **kwargs):
+    def wrapper(*args, **kwargs) -> Any:
         nonlocal has_run, ret
         if not has_run:
             has_run = True
@@ -216,7 +219,7 @@ class Content():
         extra_discription: str,
         content_path: str,
         **kwargs,
-    ):
+    ) -> None:
         """
         Parsed content.
         
@@ -246,7 +249,7 @@ class Content():
 job_executor = None
 
 
-def get_job_executor():
+def get_job_executor() -> ProcessPoolExecutor:
     global job_executor
     if job_executor is None:
         job_executor = ProcessPoolExecutor(max_workers=1)
@@ -495,7 +498,7 @@ def parse_pdf(
 the_ollama_client = None
 
 
-def get_ollama_client():
+def get_ollama_client() -> Client:
     global ollama_host
 
     if the_ollama_client:
@@ -613,7 +616,7 @@ def translate_content(
     md_writer: TextIOWrapper,
     content_list: list[Content],
     **kwargs,
-):
+) -> None:
     """
     Translate contents.
     Args:
