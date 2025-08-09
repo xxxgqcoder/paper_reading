@@ -236,14 +236,15 @@ class Content():
 
     def __str__(self, ) -> str:
         if self.content_type in [ContentType.TEXT, ContentType.EQUATION]:
-            return self.content
+            content = self.content.encode('utf-8', errors='ignore').decode('utf-8')
+            return content
 
         elif self.content_type in [ContentType.IMAGE, ContentType.TABLE]:
             return f'content is {self.content_type} \n' \
                 + f"content path : {self.content_path} \n" \
                 + f"content description: {self.extra_discription} \n"
         else:
-            return f"unregnized content"
+            return f"unrecognized content"
 
 
 job_executor = None
