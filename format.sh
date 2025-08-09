@@ -5,5 +5,5 @@ cd $(dirname "$0")
 
 
 # format python
-find . -type f -name '*py' \( -not -path "*/__pycache__/*" -and -not -path "*/.git/*" -and -not -path "*/ipynb_checkpoints/*" \) -prune \
+find . -type f -name '*py' \( -not -path "*/__pycache__/*" -and -not -path "*/.git/*" -and -not -path "*/ipynb_checkpoints/*" -and -not -path "*/.venv/*" \) -prune \
     -exec yapf -i {} +
