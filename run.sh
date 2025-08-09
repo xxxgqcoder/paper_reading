@@ -4,14 +4,15 @@ set -e
 cd $(dirname "$0")
 echo "working directory $(pwd)"
 
-file_path='/Users/xcoder/obsidian/Profession/PDF/YaRN- Efficient Context Window Extension of Large Language Models.pdf'
+file_path='/Users/xcoder/obsidian/Profession/PDF/FTRL algorithm.pdf'
 output_dir='./parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
 final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
 src_lang='en'
 target_lang='zh'
 ollama_host='http://127.0.0.1:11434'
-ollama_model='qwen3:30b-a3b'
+# ollama_model='qwen3:30b-a3b'
+ollama_model='qwen3:30b-a3b-instruct-2507-q8_0'
 steps='summary,translate'
 
 
