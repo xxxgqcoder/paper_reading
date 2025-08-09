@@ -212,14 +212,7 @@ class ContentType(StrEnum):
 # parse pdf
 class Content():
 
-    def __init__(
-        self,
-        content_type: ContentType,
-        content: str,
-        extra_discription: str,
-        content_path: str,
-        **kwargs,
-    ) -> None:
+    def __init__(self, content_type: ContentType, content: str, extra_discription: str, content_path: str, **kwargs) -> None:
         """
         Parsed content.
         
@@ -257,11 +250,7 @@ def get_job_executor() -> ProcessPoolExecutor:
     return job_executor
 
 
-def parse_pdf_job(
-    file_path: str,
-    asset_dir: str,
-    magic_config_path: str,
-) -> None:
+def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> None:
     """
     Parse PDF content and return content list. The result is a list of json object representing a pdf content block.
     
