@@ -57,7 +57,7 @@ summary_prompt = """
 注意：
 - 忽略论文引用文献部分内容，只总结论文正文部分。
 """
-max_token_num = 256 * 1024
+max_token_num = 128 * 1024
 
 
 # ------------------------------------------------------------------------------
@@ -318,7 +318,7 @@ def parse_pdf_job(
         try:
             shutil.rmtree(asset_dir)
         except:
-            pass    
+            pass
         os.makedirs(asset_dir, exist_ok=True)
 
         p_lang_list = ['ch']
@@ -378,7 +378,7 @@ def parse_pdf_job(
         md_writer.write_string(f"{pdf_file_name}_model.json", json.dumps(model_json, ensure_ascii=False, indent=4))
 
         # done pdf parsing
-        
+
         # update image path to absolute path
         for content in content_list:
             img_path = content.get('img_path', None)
@@ -417,12 +417,7 @@ def parse_pdf_job(
                 if img_footnote:
                     text += img_footnote + line_breaker
 
-                content = Content(
-                    content_type=ContentType.IMAGE,
-                    content=None,
-                    extra_discription=text,
-                    content_path=img_path,
-                )
+                content = Content(content_type=ContentType.IMAGE, content=None, extra_discription=text, content_path=img_path)
             elif content_type == 'table':
                 table_body = raw_content.get('table_body', None)
                 table_caption = raw_content.get('table_caption', None)
@@ -444,12 +439,7 @@ def parse_pdf_job(
                 if table_footnote:
                     text += table_footnote + line_breaker
 
-                content = Content(
-                    content_type=ContentType.TABLE,
-                    content=None,
-                    extra_discription=text,
-                    content_path=img_path,
-                )
+                content = Content(content_type=ContentType.TABLE, content=None, extra_discription=text, content_path=img_path)
             else:
                 raise Exception(f"unknown content type: {content_type}")
             parsed_content_list.append(content)
@@ -465,11 +455,7 @@ def parse_pdf_job(
 
 
 @time_it
-def parse_pdf(
-    file_path: str,
-    asset_dir: str,
-    magic_config_path: str,
-) -> list[Content]:
+def parse_pdf(file_path: str, asset_dir: str, magic_config_path: str) -> list[Content]:
     # submit job
     job_executor = get_job_executor()
     job_executor.submit(
@@ -540,11 +526,7 @@ def ollama_chat(prompt: str, ) -> str:
 
 # ------------------------------------------------------------------------------
 # save parsed content
-def save_parsed_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    **kwargs,
-) -> None:
+def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content], **kwargs) -> None:
     sys_image_folder = kwargs.get('sys_image_folder', os.path.expanduser("~/Pictures"))
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
     print(format_log(f'total {len(content_list)} contents'))
@@ -615,11 +597,7 @@ def translate_text_content(text: str) -> str:
 
 
 @time_it
-def translate_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    **kwargs,
-) -> None:
+def translate_content(md_writer: TextIOWrapper, content_list: list[Content], **kwargs) -> None:
     """
     Translate contents.
     Args:
@@ -703,11 +681,7 @@ def translate_content(
 # ------------------------------------------------------------------------------
 # summary func
 @time_it
-def summary_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    **kwargs,
-) -> None:
+def summary_content(md_writer: TextIOWrapper, content_list: list[Content], **kwargs) -> None:
     global summary_prompt, src_lang, target_lang
     print(f'{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}')
 
