@@ -57,7 +57,7 @@ summary_prompt = """
 注意：
 - 忽略论文引用文献部分内容，只总结论文正文部分。
 """
-max_summary_token_num = 80 * 1024
+max_token_num = 128 * 1024
 
 
 # ------------------------------------------------------------------------------
@@ -731,8 +731,8 @@ def summary_content(
     print(format_log(f'full content length: {len(full_content)}'))
     token_num, _ = estimate_token_num(full_content)
     print(format_log(f'esitmated full content token num: {token_num}'))
-    if token_num > max_summary_token_num:
-        ratio = float(max_summary_token_num) / token_num
+    if token_num > max_token_num:
+        ratio = float(max_token_num) / token_num
         print(format_log(f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'))
         full_content = full_content[:int(len(full_content) * ratio)]
 
