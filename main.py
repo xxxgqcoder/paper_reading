@@ -318,22 +318,22 @@ def parse_pdf_job(
         try:
             shutil.rmtree(asset_dir)
         except:
-            pass
+            pass    
         os.makedirs(asset_dir, exist_ok=True)
 
-        lang = 'ch'
+        p_lang_list = ['ch']
         start_page_id = 0
         end_page_id = None
         parse_method = 'auto'
 
-        file_name = str(Path(file_path).stem)
+        pdf_file_name = str(Path(file_path).stem)
         pdf_bytes = read_fn(file_path)
-
         new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, start_page_id, end_page_id)
 
+        # run document parsing
         infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
             [new_pdf_bytes],
-            [lang],
+            p_lang_list,
             parse_method=parse_method,
             formula_enable=True,
             table_enable=True,
@@ -341,7 +341,7 @@ def parse_pdf_job(
 
         model_list = infer_results[0]
         model_json = copy.deepcopy(model_list)
-        local_image_dir, local_md_dir = prepare_env(asset_dir, file_name, parse_method)
+        local_image_dir, local_md_dir = prepare_env(asset_dir, pdf_file_name, parse_method)
         image_writer, md_writer = FileBasedDataWriter(local_image_dir), FileBasedDataWriter(local_md_dir)
 
         middle_json = pipeline_result_to_middle_json(
@@ -349,7 +349,7 @@ def parse_pdf_job(
             all_image_lists[0],
             all_pdf_docs[0],
             image_writer,
-            lang,
+            lang_list[0],
             ocr_enabled_list[0],
             True,
         )
@@ -357,31 +357,33 @@ def parse_pdf_job(
         pdf_info = middle_json["pdf_info"]
 
         # draw span and layout
-        draw_layout_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_layout.pdf")
-        draw_span_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_span.pdf")
-        md_writer.write(f"{file_name}_origin.pdf", new_pdf_bytes)
+        draw_layout_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_layout.pdf")
+        draw_span_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_span.pdf")
+        md_writer.write(f"{pdf_file_name}_origin.pdf", new_pdf_bytes)
 
         # dump md
         image_dir = str(os.path.basename(local_image_dir))
         md_content_str = pipeline_union_make(pdf_info, MakeMode.MM_MD, image_dir)
-        md_writer.write_string(f"{file_name}.md", md_content_str)
+        md_writer.write_string(f"{pdf_file_name}.md", md_content_str)
 
         # dump content list
         image_dir = str(os.path.basename(local_image_dir))
         content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
-        md_writer.write_string(f"{file_name}_content_list.json", json.dumps(content_list, ensure_ascii=False, indent=4))
+        md_writer.write_string(f"{pdf_file_name}_content_list.json", json.dumps(content_list, ensure_ascii=False, indent=4))
 
         # dump middle json
-        md_writer.write_string(f"{file_name}_middle.json", json.dumps(middle_json, ensure_ascii=False, indent=4))
+        md_writer.write_string(f"{pdf_file_name}_middle.json", json.dumps(middle_json, ensure_ascii=False, indent=4))
 
         # dump model json
-        md_writer.write_string(f"{file_name}_model.json", json.dumps(model_json, ensure_ascii=False, indent=4))
+        md_writer.write_string(f"{pdf_file_name}_model.json", json.dumps(model_json, ensure_ascii=False, indent=4))
 
+        # done pdf parsing
+        
         # update image path to absolute path
         for content in content_list:
             img_path = content.get('img_path', None)
             if img_path:
-                content['img_path'] = os.path.realpath(os.path.join(asset_dir, file_name, parse_method, img_path))
+                content['img_path'] = os.path.realpath(os.path.join(asset_dir, pdf_file_name, parse_method, img_path))
 
         # parse content list
         parsed_content_list = []
@@ -793,17 +795,10 @@ def process(
     print(format_log(f'file name without out suffix: {name_without_suff}'))
 
     # parse pdf
-    content_list = parse_pdf(
-        file_path=file_path,
-        asset_dir=output_dir,
-        magic_config_path=magic_config_path,
-    )
+    content_list = parse_pdf(file_path=file_path, asset_dir=output_dir, magic_config_path=magic_config_path)
 
     # md writer
-    md_file_path = os.path.join(
-        final_md_file_save_dir,
-        f'{name_without_suff}.md',
-    )
+    md_file_path = os.path.join(final_md_file_save_dir, f'{name_without_suff}.md')
     md_writer = open(md_file_path, 'w')
 
     md_writer.write(f'paper: {name_without_suff}' + line_breaker)
