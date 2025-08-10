@@ -13,3 +13,9 @@
 **/.virtual_documents/**
 
 **/*model*/**
+
+**/tmp/**
+
+**/temp/**
+
+.DS_Store
