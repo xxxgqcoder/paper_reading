@@ -592,10 +592,7 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content], **k
     Args:
     - content_list: a list of content.
     """
-    sys_image_folder = kwargs.get(
-        'sys_image_folder',
-        os.path.expanduser("~/Pictures"),
-    )
+    sys_image_folder = kwargs.get('sys_image_folder', os.path.expanduser("~/Pictures"))
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
 
     print(format_log(f'total {len(content_list)} contents'))
@@ -603,7 +600,7 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content], **k
     md_writer.write('# ' + '=' * 8 + '  Translated Content  ' + '=' * 8 + line_breaker)
 
     for i, content in enumerate(content_list):
-        print(format_log(f'translating content {i}, original content: {content}'))
+        print(format_log(f'translating content {i}, original content:\n{content}'))
         print('-' * 128)
         print('\n\n')
 
