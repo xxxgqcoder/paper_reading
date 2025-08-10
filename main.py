@@ -7,6 +7,7 @@ import time
 import os
 import traceback
 import math
+import copy
 from io import TextIOWrapper
 from typing import Any, Callable, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor
@@ -23,10 +24,10 @@ ollama_model = 'qwen3:30b-a3b'
 
 lang_mapping = {'en': "英语", 'zh': "中文"}
 gen_conf = {
-    'temperature': 0.1,
+    'temperature': 0.5,
     'top_p': 0.3,
-    'presence_penalty': 0.4,
-    'frequency_penalty': 0.7,
+    'repeat_penalty': 1.1,
+    'num_ctx': 64 * 1024,
 }
 translate_prompt = """
 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
@@ -515,26 +516,21 @@ def ollama_chat(prompt: str, ) -> str:
     ollama_client = get_ollama_client()
 
     history = [{'role': 'user', 'content': prompt}]
-    options = {}
-    if "temperature" in gen_conf:
-        options["temperature"] = gen_conf["temperature"]
-    if "max_tokens" in gen_conf:
-        options["num_predict"] = gen_conf["max_tokens"]
-    if "top_p" in gen_conf:
-        options["top_p"] = gen_conf["top_p"]
-    if "presence_penalty" in gen_conf:
-        options["presence_penalty"] = gen_conf["presence_penalty"]
-    if "frequency_penalty" in gen_conf:
-        options["frequency_penalty"] = gen_conf["frequency_penalty"]
+    options = copy.deepcopy(gen_conf)
 
     try:
         response = ollama_client.chat(model=ollama_model, messages=history, options=options, keep_alive=10)
     except Exception as e:
         return f"Exception {e}"
 
-    ans = response["message"]["content"].strip()
+    ans = copy.deepcopy(response["message"]["content"].strip())
+    del response.message
+    print(format_log(f"inference result meta data:\n{response}"))
+
     if '</think>' in ans:
         ans = ans.split('</think>')[-1]
+    if '</thinking>' in ans:
+        ans = ans.split('</thinking>')[-1]
     return ans.strip()
 
 
@@ -829,7 +825,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Example of argparse usage.")
 
     parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument("--output_dir", help="path to assets folder", default="./parsed_asset")
+    parser.add_argument("--output_dir", help="path to assets folder", default="./tmp/parsed_asset")
     parser.add_argument("--ollama_host", help="ollama host", default="http://127.0.0.1:11434")
     parser.add_argument("--ollama_model", help="ollama model name", default="qwen3:30b-a3b")
     parser.add_argument("--magic_config_path", help="magic pdf config path", default="./magic-pdf.json")

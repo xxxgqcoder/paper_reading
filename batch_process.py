@@ -8,7 +8,8 @@ sys_image_folder = '/Users/xcoder/obsidian/Profession/attachments'
 # folder for saving final markdown file
 final_md_file_save_dir = '/Users/xcoder/obsidian/Profession/Paper Reading'
 # ollama_model = 'qwen3:30b-a3b'
-ollama_model = 'qwen3:30b-a3b-instruct-2507-q8_0'
+# ollama_model = 'qwen3:30b-a3b-instruct-2507-q8_0'
+ollama_model = 'qwen3:30b-a3b-thinking-2507-q8_0'
 steps = 'summary,translate'
 
 >>>>>>> bf2c4ee (append log)
