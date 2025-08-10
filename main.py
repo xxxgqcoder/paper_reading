@@ -27,7 +27,7 @@ gen_conf = {
     'temperature': 0.5,
     'top_p': 0.3,
     'repeat_penalty': 1.1,
-    'num_ctx': 64 * 1024,
+    'num_ctx': 32 * 1024,
 }
 translate_prompt = """
 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
