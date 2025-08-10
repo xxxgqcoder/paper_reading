@@ -563,6 +563,7 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content], *
 # ------------------------------------------------------------------------------
 # translate func
 def translate_text_content(text: str) -> str:
+    global translate_prompt, src_lang, target_lang
     if is_empty(text):
         return ""
 
@@ -571,6 +572,7 @@ def translate_text_content(text: str) -> str:
     print(format_log(f'text byte length: {len(text)}, block num: {block_num}'))
     full_result = ""
     for i in range(block_num):
+        print(format_log(f"processing segment {i}"))
         segment = text[i * max_byte_len:(i + 1) * max_byte_len]
 
         formatted_prompt = translate_prompt.format(
