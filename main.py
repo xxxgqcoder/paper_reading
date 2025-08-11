@@ -27,7 +27,7 @@ gen_conf = {
     'temperature': 0.5,
     'top_p': 0.3,
     'repeat_penalty': 1.1,
-    'num_ctx': 32 * 1024,
+    'num_ctx': 16 * 1024,
 }
 translate_prompt = """
 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
@@ -500,6 +500,9 @@ def ollama_chat(prompt: str, ) -> str:
 
     ans = copy.deepcopy(response["message"]["content"].strip())
     del response.message
+
+    for attr in ['total_duration', 'load_duration', 'prompt_eval_duration', 'eval_duration']:
+        setattr(response, attr, getattr(response, attr) / 1e9)
     print(format_log(f"inference result meta data:\n{response}"))
 
     if '</think>' in ans:
