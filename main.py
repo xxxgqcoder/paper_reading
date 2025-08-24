@@ -432,12 +432,12 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
         # dump md
         image_dir = str(os.path.basename(local_image_dir))
-        md_content_str = pipeline_union_make(pdf_info, MakeMode.MM_MD, image_dir)
-        md_writer.write_string(f"{pdf_file_name}.md", md_content_str)
+        md_content_str: list[str] = pipeline_union_make(pdf_info, MakeMode.MM_MD, image_dir) # type: ignore
+        md_writer.write_string(f"{pdf_file_name}.md", str(md_content_str))
 
         # dump content list
         image_dir = str(os.path.basename(local_image_dir))
-        content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
+        content_list: list[dict[str, Any]] = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir) # type: ignore
         md_writer.write_string(
             f"{pdf_file_name}_content_list.json",
             json.dumps(content_list, ensure_ascii=False, indent=4),
@@ -476,7 +476,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
             if content_type in ["text", "equation"]:
                 text = raw_content.get("text", "")
-                if raw_content.get("text_level", None) == 1:
+                if raw_content.get("text_level", -1) == 1:
                     text = "# " + text
                 content = Content(
                     content_type=ContentType.TEXT
@@ -484,7 +484,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
                     else ContentType.EQUATION,
                     content=text,
                     extra_discription="",
-                    content_path=None,
+                    content_path="",
                 )
             elif content_type == "image":
                 img_caption = raw_content.get("img_caption", None)
@@ -495,7 +495,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
                 if isinstance(img_footnote, list):
                     img_footnote = format_list_as_str(img_footnote)
 
-                img_path = raw_content.get("img_path")
+                img_path = raw_content.get("img_path", "")
                 text = ""
                 if img_caption:
                     text += img_caption + line_breaker
@@ -504,7 +504,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
                 content = Content(
                     content_type=ContentType.IMAGE,
-                    content=None,
+                    content="",
                     extra_discription=text,
                     content_path=img_path,
                 )
@@ -514,17 +514,22 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
                 table_caption = raw_content.get('table_caption', None)
 =======
             elif content_type == "table":
+<<<<<<< HEAD
                 table_body = raw_content.get("table_body", None)
                 table_caption = raw_content.get("table_caption", None)
 >>>>>>> ce293fe (format code)
+=======
+                table_body = raw_content.get("table_body", "")
+                table_caption = raw_content.get("table_caption", "")
+>>>>>>> 00288ac (fix type hint)
                 if isinstance(table_caption, list):
                     table_caption = format_list_as_str(table_caption)
 
-                table_footnote = raw_content.get("table_footnote", None)
+                table_footnote = raw_content.get("table_footnote", "")
                 if isinstance(table_footnote, list):
                     table_footnote = format_list_as_str(table_footnote)
 
-                img_path = raw_content.get("img_path", None)
+                img_path = raw_content.get("img_path", "")
                 text = ""
                 # NOTE: donot append parsed table body to content
                 # if table_body:
@@ -537,7 +542,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
                 content = Content(
                     content_type=ContentType.TABLE,
-                    content=None,
+                    content="",
                     extra_discription=text,
                     content_path=img_path,
                 )
