@@ -644,7 +644,7 @@ def translate_text_content(text: str) -> str:
     if is_empty(text):
         return ""
 
-    max_byte_len = 4 * 1024
+    max_byte_len = 8 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
     print(format_log(f"text byte length: {len(text)}, block num: {block_num}"))
     full_result = ""
