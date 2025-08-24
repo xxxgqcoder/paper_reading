@@ -1,0 +1,5 @@
+mineru[core]
+ollama
+jupyterlab
+yapf
+StrEnum
