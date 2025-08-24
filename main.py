@@ -1,17 +1,16 @@
 import argparse
+import copy
+import math
 import os
 import pickle
 import re
 import shutil
 import time
-import os
 import traceback
-import math
-import copy
-from io import TextIOWrapper
-from typing import Any, Callable, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+from io import TextIOWrapper
+from typing import Any, Callable, tuple
 
 from ollama import Client
 from strenum import StrEnum
@@ -138,7 +137,7 @@ def print_exception(e: Exception):
     print(formatted_traceback)
 
 
-def estimate_token_num(text: str) -> Tuple[int, list[str]]:
+def estimate_token_num(text: str) -> tuple[int, list[str]]:
     """
     Estimate tokens in text. Combine consecutive ascii character as one token,
     treat each non-ascii character as one token. Each ascii token accounts for 2.3
@@ -211,6 +210,13 @@ def format_log(text: str) -> str:
     return f"{datetime.now()}: {text}"
 
 
+def ensure_utf(text: str) -> str:
+    if text is None:
+        return text
+    text = text.encode("utf-8", errors="ignore").decode("utf-8")
+    return text
+
+
 job_executor = None
 
 
@@ -268,7 +274,7 @@ class Content:
                 + f"content description: {self.extra_discription} \n"
             )
         else:
-            return f"unrecognized content"
+            return "unrecognized content"
 
 
 def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> None:
@@ -314,6 +320,15 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
     os.environ["MINERU_MODEL_SOURCE"] = "local"
     print(format_log(f"setting magic pdf config path to {magic_config_path}"))
 
+    from mineru.backend.pipeline.model_json_to_middle_json import (
+        result_to_middle_json as pipeline_result_to_middle_json,
+    )
+    from mineru.backend.pipeline.pipeline_analyze import (
+        doc_analyze as pipeline_doc_analyze,
+    )
+    from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+        union_make as pipeline_union_make,
+    )
     from mineru.cli.common import (
         convert_pdf_bytes_to_bytes_by_pypdfium2,
         prepare_env,
@@ -322,15 +337,6 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
     from mineru.data.data_reader_writer import FileBasedDataWriter
     from mineru.utils.draw_bbox import draw_layout_bbox, draw_span_bbox
     from mineru.utils.enum_class import MakeMode
-    from mineru.backend.pipeline.pipeline_analyze import (
-        doc_analyze as pipeline_doc_analyze,
-    )
-    from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
-        union_make as pipeline_union_make,
-    )
-    from mineru.backend.pipeline.model_json_to_middle_json import (
-        result_to_middle_json as pipeline_result_to_middle_json,
-    )
 
     try:
         # prepare env
@@ -524,7 +530,7 @@ def parse_pdf(file_path: str, asset_dir: str, magic_config_path: str) -> list[Co
         print_exception(e)
         os._exit(0)
 
-    print(format_log(f"PDF parse job done"))
+    print(format_log("PDF parse job done"))
 
     # parse returned content
     pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
@@ -599,10 +605,7 @@ def save_parsed_content(
     for i, content in enumerate(content_list):
         lines = ""
 
-        if content.content_type == ContentType.TEXT:
-            lines += content.content + line_breaker
-
-        elif content.content_type == ContentType.EQUATION:
+        if content.content_type == ContentType.TEXT or content.content_type == ContentType.EQUATION:
             lines += content.content + line_breaker
 
         elif content.content_type == ContentType.IMAGE:
@@ -677,11 +680,15 @@ def translate_content(
     md_writer.write("# " + "=" * 8 + "  Translated Content  " + "=" * 8 + line_breaker)
 
     i = 0
-    max_content_num = 10
+    max_content_num = 20
     while i < len(content_list):
         # image & table
         if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
-            print(format_log(f'translating content {i}, type: {content_list[i].content_type}'))
+            print(
+                format_log(
+                    f"translating content {i}, type: {content_list[i].content_type}"
+                )
+            )
             # save images resources
             if content_list[i].content_path:
                 save_image(content_list[i].content_path, sys_image_folder)
@@ -697,10 +704,14 @@ def translate_content(
 
             i = i + 1
             continue
-        
+
         # equation
         if content_list[i].content_type == ContentType.EQUATION:
-            print(format_log(f'translating content {i}, type: {content_list[i].content_type}'))
+            print(
+                format_log(
+                    f"translating content {i}, type: {content_list[i].content_type}"
+                )
+            )
             lines = content_list[i].content + line_breaker
             md_writer.write(lines + line_breaker)
 
@@ -715,9 +726,14 @@ def translate_content(
             and content_list[j].content_type == ContentType.TEXT
         ):
             j += 1
-        print(format_log(f'translating content {i} to {j-1}, type: {content_list[i].content_type}'))
+        print(
+            format_log(
+                f"translating content {i} to {j - 1}, type: {content_list[i].content_type}"
+            )
+        )
         content = "\n".join([content.content for content in content_list[i:j]])
-        print(format_log(f'content to translate:\n{content}'))
+        content = ensure_utf(content)
+        print(format_log(f"content to translate:\n{content}"))
         translated = translate_text_content(content)
         translated = post_text_process(translated)
         print(format_log(f"tranlated content:\n{translated}"))
@@ -741,16 +757,10 @@ def summary_content(
 
     full_content = ""
     for content in content_list:
-        if content.content_type == ContentType.TEXT:
+        if content.content_type == ContentType.TEXT or content.content_type == ContentType.EQUATION:
             full_content += content.content + line_breaker
 
-        elif content.content_type == ContentType.EQUATION:
-            full_content += content.content + line_breaker
-
-        elif content.content_type == ContentType.IMAGE:
-            full_content += content.extra_discription + line_breaker
-
-        elif content.content_type == ContentType.TABLE:
+        elif content.content_type == ContentType.IMAGE or content.content_type == ContentType.TABLE:
             full_content += content.extra_discription + line_breaker
 
         else:
