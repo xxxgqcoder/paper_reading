@@ -27,7 +27,7 @@ gen_conf = {
     "temperature": 0.5,
     "top_p": 0.3,
     "repeat_penalty": 1.1,
-    "num_ctx": 16 * 1024,
+    "num_ctx": 32 * 1024,
 }
 translate_prompt = """
 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
@@ -40,6 +40,9 @@ translate_prompt = """
 
 注意：
 - 如果要翻译的内容为引用文献、算法伪代码、代码，则不需要翻译，直接返回原文
+- 你只需要输出最终翻译结果，不要输出逐步思考过程。
+
+现在开始逐步思考
 """
 
 summary_prompt = """
@@ -57,6 +60,9 @@ summary_prompt = """
 
 注意：
 - 忽略论文引用文献部分内容，只总结论文正文部分。
+- 你只需要输出最终总结结果，不要输出逐步思考过程。
+
+现在开始逐步思考
 """
 max_token_num = 128 * 1024
 
@@ -205,7 +211,21 @@ def format_log(text: str) -> str:
     return f"{datetime.now()}: {text}"
 
 
+<<<<<<< HEAD
 # ==============================================================================
+=======
+job_executor = None
+
+
+def get_job_executor() -> ProcessPoolExecutor:
+    global job_executor
+    if job_executor is None:
+        job_executor = ProcessPoolExecutor(max_workers=1)
+    return job_executor
+
+
+# ------------------------------------------------------------------------------
+>>>>>>> b63affb (block translating)
 # parser
 class ContentType(StrEnum):
     TEXT = "text"
@@ -260,6 +280,7 @@ class Content:
             return f"unrecognized content"
 
 
+<<<<<<< HEAD
 job_executor = None
 
 
@@ -275,6 +296,9 @@ def parse_pdf_job(
     asset_dir: str,
     magic_config_path: str,
 ) -> None:
+=======
+def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> None:
+>>>>>>> 066c9f5 (block translating)
     """
     Parse PDF content and return content list. The result is a list of json object representing a pdf content block.
 
@@ -310,9 +334,8 @@ def parse_pdf_job(
     import os
     from pathlib import Path
 
-    # NOTE: magic_pdf package uses singleton design and the model isntance is
-    # initialized when the module is imported, so postpone the import statement
-    # until parse method is called.
+    # NOTE: magic_pdf package uses singleton design and the model isntance is initialized when the module is imported,
+    # so postpone the import statement until parse method is called.
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
     os.environ["MINERU_MODEL_SOURCE"] = "local"
@@ -355,7 +378,7 @@ def parse_pdf_job(
             pdf_bytes, start_page_id, end_page_id
         )
 
-        # run document parsing
+        # document parsing
         infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = (
             pipeline_doc_analyze(
                 [new_pdf_bytes],
@@ -376,6 +399,7 @@ def parse_pdf_job(
             FileBasedDataWriter(local_md_dir),
         )
 
+        # content conversion
         middle_json = pipeline_result_to_middle_json(
             model_list,
             all_image_lists[0],
@@ -422,8 +446,11 @@ def parse_pdf_job(
             json.dumps(model_json, ensure_ascii=False, indent=4),
         )
 
+<<<<<<< HEAD
         # done pdf parsing
         
+=======
+>>>>>>> 066c9f5 (block translating)
         # update image path to absolute path
         for content in content_list:
             img_path = content.get("img_path", None)
@@ -713,12 +740,16 @@ def translate_content(
 =======
     sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
     print(format_log(f"using {sys_image_folder} as sys image save folder"))
+<<<<<<< HEAD
 >>>>>>> ce293fe (format code)
 
+=======
+>>>>>>> 066c9f5 (block translating)
     print(format_log(f"total {len(content_list)} contents"))
 
     md_writer.write("# " + "=" * 8 + "  Translated Content  " + "=" * 8 + line_breaker)
 
+<<<<<<< HEAD
     for i, content in enumerate(content_list):
 <<<<<<< HEAD
 =======
@@ -733,26 +764,58 @@ def translate_content(
         print("-" * 128)
         print("\n\n")
 >>>>>>> f226014 (format code)
+=======
+    i = 0
+    max_content_num = 10
+    while i < len(content_list):
+        # image & table
+        if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
+            print(format_log(f'translating content {i}, type: {content_list[i].content_type}'))
+            # save images resources
+            if content_list[i].content_path:
+                save_image(content_list[i].content_path, sys_image_folder)
+                img_name = os.path.basename(content_list[i].content_path)
+                img_path = format_md_image_path(sys_image_folder, img_name)
+                md_writer.write(img_path + line_breaker)
+>>>>>>> b63affb (block translating)
 
-        if content.content_type == ContentType.TEXT:
-            translated = translate_text_content(content.content)
-            content.translated_content = translated
+            # translate description
+            translated = translate_text_content(content_list[i].extra_discription)
+            translated = post_text_process(translated)
+            print(format_log(f"translated content:\n{translated}"))
+            md_writer.write(translated + line_breaker)
 
-        elif content.content_type in [ContentType.TABLE, ContentType.IMAGE]:
-            translated = translate_text_content(content.extra_discription)
-            content.translated_extra_discription = translated
-            print(format_log(f"tranlated content: {translated}"))
+            i = i + 1
+            continue
+        
+        # equation
+        if content_list[i].content_type == ContentType.EQUATION:
+            print(format_log(f'translating content {i}, type: {content_list[i].content_type}'))
+            lines = content_list[i].content + line_breaker
+            md_writer.write(lines + line_breaker)
 
-        else:
-            pass
+            i = i + 1
+            continue
 
-        print(format_log(f"translation done"))
+        # text
+        j = i + 1
+        while (
+            j < len(content_list)
+            and j - i < max_content_num
+            and content_list[j].content_type == ContentType.TEXT
+        ):
+            j += 1
+        print(format_log(f'translating content {i} to {j-1}, type: {content_list[i].content_type}'))
+        content = "\n".join([content.content for content in content_list[i:j]])
+        print(format_log(f'content to translate:\n{content}'))
+        translated = translate_text_content(content)
+        translated = post_text_process(translated)
+        print(format_log(f"tranlated content:\n{translated}"))
+        md_writer.write(translated + line_breaker)
 
-        # save translated content
-        lines = ""
-        if content.content_type == ContentType.TEXT:
-            lines += content.translated_content + line_breaker
+        i = j
 
+<<<<<<< HEAD
         elif content.content_type == ContentType.EQUATION:
             lines += content.content + line_breaker
 
@@ -804,6 +867,9 @@ def translate_content(
                 f"save translated  content list to {translated_pickle_content_path}"
             )
         )
+=======
+    md_writer.flush()
+>>>>>>> b63affb (block translating)
 
 
 # ==============================================================================
