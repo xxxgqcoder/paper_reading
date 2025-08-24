@@ -16,18 +16,18 @@ from datetime import datetime
 from ollama import Client
 from strenum import StrEnum
 
-line_breaker = '\n\n'
+line_breaker = "\n\n"
 
 # global variables
-ollama_host = 'http://127.0.0.1:11434'
-ollama_model = 'qwen3:30b-a3b'
+ollama_host = "http://127.0.0.1:11434"
+ollama_model = "qwen3:30b-a3b"
 
-lang_mapping = {'en': "英语", 'zh': "中文"}
+lang_mapping = {"en": "英语", "zh": "中文"}
 gen_conf = {
-    'temperature': 0.5,
-    'top_p': 0.3,
-    'repeat_penalty': 1.1,
-    'num_ctx': 16 * 1024,
+    "temperature": 0.5,
+    "top_p": 0.3,
+    "repeat_penalty": 1.1,
+    "num_ctx": 16 * 1024,
 }
 translate_prompt = """
 你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
@@ -64,12 +64,13 @@ max_token_num = 128 * 1024
 # ==============================================================================
 # util funcs
 def time_it(func) -> Callable[..., Any]:
-
     def wrapper(*kargs, **kwargs) -> Any:
         begin = time.time_ns()
         ret = func(*kargs, **kwargs)
         elapse = (time.time_ns() - begin) // 1000000
-        print(f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000)//1000}sec {elapse%60000%1000}ms to finish")
+        print(
+            f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000) // 1000}sec {elapse % 60000 % 1000}ms to finish"
+        )
 
         return ret
 
@@ -84,7 +85,7 @@ def save_image(src_path: str, dst_dir: str) -> None:
 
 def safe_strip(raw: str) -> str:
     if raw is None or len(raw) == 0:
-        return ''
+        return ""
     raw = str(raw)
     return raw.strip()
 
@@ -109,7 +110,7 @@ def is_empty(text: str) -> bool:
         return True
     if len(text) == 0:
         return True
-    if text == '[]':
+    if text == "[]":
         return True
     return False
 
@@ -119,7 +120,10 @@ def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
     md image can only be corrct displayed when saved to same folder of the md file,
     reformatted inserted image path for better display.
     """
-    return f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]" + line_breaker
+    return (
+        f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
+        + line_breaker
+    )
 
 
 def print_exception(e: Exception):
@@ -149,14 +153,14 @@ def estimate_token_num(text: str) -> Tuple[int, list[str]]:
     def is_space(ch: str) -> bool:
         if ord(ch) >= 128:
             return False
-        if ch.strip() == '':
+        if ch.strip() == "":
             return True
         return False
 
     def token_bound_found(text: str, i: int, j: int) -> bool:
         if ord(text[i]) < 127:
             # space met or non-ascii character met
-            return (is_space(text[j]) or ord(text[j]) > 127)
+            return is_space(text[j]) or ord(text[j]) > 127
         else:
             # count one non-ascii character as one token
             return j > i
@@ -194,7 +198,7 @@ def post_text_process(text: str) -> str:
 
 
 def format_list_as_str(l: list[Any]) -> str:
-    return '\n'.join([str(e) for e in l])
+    return "\n".join([str(e) for e in l])
 
 
 def format_log(text: str) -> str:
@@ -211,8 +215,12 @@ class ContentType(StrEnum):
 
 
 # parse pdf
+<<<<<<< HEAD
 class Content():
 
+=======
+class Content:
+>>>>>>> ce293fe (format code)
     def __init__(
         self,
         content_type: ContentType,
@@ -223,7 +231,7 @@ class Content():
     ) -> None:
         """
         Parsed content.
-        
+
         Args:
         - content_type
         - content
@@ -235,15 +243,19 @@ class Content():
         self.extra_discription = extra_discription
         self.content_path = content_path
 
-    def __str__(self, ) -> str:
+    def __str__(
+        self,
+    ) -> str:
         if self.content_type in [ContentType.TEXT, ContentType.EQUATION]:
-            content = self.content.encode('utf-8', errors='ignore').decode('utf-8')
+            content = self.content.encode("utf-8", errors="ignore").decode("utf-8")
             return content
 
         elif self.content_type in [ContentType.IMAGE, ContentType.TABLE]:
-            return f'content is {self.content_type} \n' \
-                + f"content path : {self.content_path} \n" \
+            return (
+                f"content is {self.content_type} \n"
+                + f"content path : {self.content_path} \n"
                 + f"content description: {self.extra_discription} \n"
+            )
         else:
             return f"unrecognized content"
 
@@ -265,7 +277,7 @@ def parse_pdf_job(
 ) -> None:
     """
     Parse PDF content and return content list. The result is a list of json object representing a pdf content block.
-    
+
     Dict object key explanation:
         - `img_caption`: the image caption.
         - `img_footnote`:
@@ -278,10 +290,10 @@ def parse_pdf_job(
         - `text_format`: used in latex forumla block.
         - `text_level`: used in headline block.
         - `type`: block type, can be one of 'equation', 'image', 'table', 'text'.
-    
+
     Typical parsed paper content is organized by list of content block.
-    Headlines will stored in one separated block, with `text_level` = 1 while regular content block's `text_level` key is missing. 
-    Headline blocks are followed by regular content block, including `text`, `equation`, `table` and `image` (distinguished by key `type`). 
+    Headlines will stored in one separated block, with `text_level` = 1 while regular content block's `text_level` key is missing.
+    Headline blocks are followed by regular content block, including `text`, `equation`, `table` and `image` (distinguished by key `type`).
     All captions are stored in each block's caption key, for example, caption of a parsed image is saved in `img_caption` key of the block.
 
     Please refer https://github.com/opendatalab/MinerU/blob/master/demo/demo.py for more details.
@@ -303,16 +315,26 @@ def parse_pdf_job(
     # until parse method is called.
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
-    os.environ["MINERU_MODEL_SOURCE"] = 'local'
-    print(format_log(f'setting magic pdf config path to {magic_config_path}'))
+    os.environ["MINERU_MODEL_SOURCE"] = "local"
+    print(format_log(f"setting magic pdf config path to {magic_config_path}"))
 
-    from mineru.cli.common import convert_pdf_bytes_to_bytes_by_pypdfium2, prepare_env, read_fn
+    from mineru.cli.common import (
+        convert_pdf_bytes_to_bytes_by_pypdfium2,
+        prepare_env,
+        read_fn,
+    )
     from mineru.data.data_reader_writer import FileBasedDataWriter
     from mineru.utils.draw_bbox import draw_layout_bbox, draw_span_bbox
     from mineru.utils.enum_class import MakeMode
-    from mineru.backend.pipeline.pipeline_analyze import doc_analyze as pipeline_doc_analyze
-    from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as pipeline_union_make
-    from mineru.backend.pipeline.model_json_to_middle_json import result_to_middle_json as pipeline_result_to_middle_json
+    from mineru.backend.pipeline.pipeline_analyze import (
+        doc_analyze as pipeline_doc_analyze,
+    )
+    from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+        union_make as pipeline_union_make,
+    )
+    from mineru.backend.pipeline.model_json_to_middle_json import (
+        result_to_middle_json as pipeline_result_to_middle_json,
+    )
 
     try:
         # prepare env
@@ -322,28 +344,37 @@ def parse_pdf_job(
             pass    
         os.makedirs(asset_dir, exist_ok=True)
 
-        p_lang_list = ['ch']
+        p_lang_list = ["ch"]
         start_page_id = 0
         end_page_id = None
-        parse_method = 'auto'
+        parse_method = "auto"
 
         pdf_file_name = str(Path(file_path).stem)
         pdf_bytes = read_fn(file_path)
-        new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(pdf_bytes, start_page_id, end_page_id)
+        new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(
+            pdf_bytes, start_page_id, end_page_id
+        )
 
         # run document parsing
-        infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = pipeline_doc_analyze(
-            [new_pdf_bytes],
-            p_lang_list,
-            parse_method=parse_method,
-            formula_enable=True,
-            table_enable=True,
+        infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = (
+            pipeline_doc_analyze(
+                [new_pdf_bytes],
+                p_lang_list,
+                parse_method=parse_method,
+                formula_enable=True,
+                table_enable=True,
+            )
         )
 
         model_list = infer_results[0]
         model_json = copy.deepcopy(model_list)
-        local_image_dir, local_md_dir = prepare_env(asset_dir, pdf_file_name, parse_method)
-        image_writer, md_writer = FileBasedDataWriter(local_image_dir), FileBasedDataWriter(local_md_dir)
+        local_image_dir, local_md_dir = prepare_env(
+            asset_dir, pdf_file_name, parse_method
+        )
+        image_writer, md_writer = (
+            FileBasedDataWriter(local_image_dir),
+            FileBasedDataWriter(local_md_dir),
+        )
 
         middle_json = pipeline_result_to_middle_json(
             model_list,
@@ -358,8 +389,12 @@ def parse_pdf_job(
         pdf_info = middle_json["pdf_info"]
 
         # draw span and layout
-        draw_layout_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_layout.pdf")
-        draw_span_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_span.pdf")
+        draw_layout_bbox(
+            pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_layout.pdf"
+        )
+        draw_span_bbox(
+            pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_span.pdf"
+        )
         md_writer.write(f"{pdf_file_name}_origin.pdf", new_pdf_bytes)
 
         # dump md
@@ -370,48 +405,61 @@ def parse_pdf_job(
         # dump content list
         image_dir = str(os.path.basename(local_image_dir))
         content_list = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir)
-        md_writer.write_string(f"{pdf_file_name}_content_list.json", json.dumps(content_list, ensure_ascii=False, indent=4))
+        md_writer.write_string(
+            f"{pdf_file_name}_content_list.json",
+            json.dumps(content_list, ensure_ascii=False, indent=4),
+        )
 
         # dump middle json
-        md_writer.write_string(f"{pdf_file_name}_middle.json", json.dumps(middle_json, ensure_ascii=False, indent=4))
+        md_writer.write_string(
+            f"{pdf_file_name}_middle.json",
+            json.dumps(middle_json, ensure_ascii=False, indent=4),
+        )
 
         # dump model json
-        md_writer.write_string(f"{pdf_file_name}_model.json", json.dumps(model_json, ensure_ascii=False, indent=4))
+        md_writer.write_string(
+            f"{pdf_file_name}_model.json",
+            json.dumps(model_json, ensure_ascii=False, indent=4),
+        )
 
         # done pdf parsing
         
         # update image path to absolute path
         for content in content_list:
-            img_path = content.get('img_path', None)
+            img_path = content.get("img_path", None)
             if img_path:
-                content['img_path'] = os.path.realpath(os.path.join(asset_dir, pdf_file_name, parse_method, img_path))
+                content["img_path"] = os.path.realpath(
+                    os.path.join(asset_dir, pdf_file_name, parse_method, img_path)
+                )
 
         # parse content list
         parsed_content_list = []
         for raw_content in content_list:
-            content_type = raw_content.get('type', None)
+            content_type = raw_content.get("type", None)
             content = None
 
-            if content_type in ['text', 'equation']:
-                text = raw_content.get('text', '')
-                if raw_content.get('text_level', None) == 1:
+            if content_type in ["text", "equation"]:
+                text = raw_content.get("text", "")
+                if raw_content.get("text_level", None) == 1:
                     text = "# " + text
                 content = Content(
-                    content_type=ContentType.TEXT if content_type == 'text' else ContentType.EQUATION,
+                    content_type=ContentType.TEXT
+                    if content_type == "text"
+                    else ContentType.EQUATION,
                     content=text,
                     extra_discription="",
                     content_path=None,
                 )
-            elif content_type == 'image':
-                img_caption = raw_content.get('img_caption', None)
+            elif content_type == "image":
+                img_caption = raw_content.get("img_caption", None)
                 if isinstance(img_caption, list):
                     img_caption = format_list_as_str(img_caption)
 
-                img_footnote = raw_content.get('img_footnote', None)
+                img_footnote = raw_content.get("img_footnote", None)
                 if isinstance(img_footnote, list):
                     img_footnote = format_list_as_str(img_footnote)
 
-                img_path = raw_content.get('img_path')
+                img_path = raw_content.get("img_path")
                 text = ""
                 if img_caption:
                     text += img_caption + line_breaker
@@ -424,17 +472,23 @@ def parse_pdf_job(
                     extra_discription=text,
                     content_path=img_path,
                 )
+<<<<<<< HEAD
             elif content_type == 'table':
                 table_body = raw_content.get('table_body', None)
                 table_caption = raw_content.get('table_caption', None)
+=======
+            elif content_type == "table":
+                table_body = raw_content.get("table_body", None)
+                table_caption = raw_content.get("table_caption", None)
+>>>>>>> ce293fe (format code)
                 if isinstance(table_caption, list):
                     table_caption = format_list_as_str(table_caption)
 
-                table_footnote = raw_content.get('table_footnote', None)
+                table_footnote = raw_content.get("table_footnote", None)
                 if isinstance(table_footnote, list):
                     table_footnote = format_list_as_str(table_footnote)
 
-                img_path = raw_content.get('img_path', None)
+                img_path = raw_content.get("img_path", None)
                 text = ""
                 # NOTE: donot append parsed table body to content
                 # if table_body:
@@ -456,9 +510,9 @@ def parse_pdf_job(
             parsed_content_list.append(content)
 
         # save content list
-        pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-        print(format_log(f'saving parsed content list to {pickle_content_path}'))
-        with open(pickle_content_path, 'wb') as f:
+        pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
+        print(format_log(f"saving parsed content list to {pickle_content_path}"))
+        with open(pickle_content_path, "wb") as f:
             pickle.dump(parsed_content_list, f)
 
     except Exception as e:
@@ -485,14 +539,14 @@ def parse_pdf(
         print_exception(e)
         os._exit(0)
 
-    print(format_log(f'PDF parse job done'))
+    print(format_log(f"PDF parse job done"))
 
     # parse returned content
-    pickle_content_path = os.path.join(asset_dir, 'content_list.pickle')
-    print(format_log(f'loading content list from {pickle_content_path}'))
-    with open(pickle_content_path, 'rb') as f:
+    pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
+    print(format_log(f"loading content list from {pickle_content_path}"))
+    with open(pickle_content_path, "rb") as f:
         content_list = pickle.load(f)
-    print(format_log(f'loaded {len(content_list)} content from {pickle_content_path}'))
+    print(format_log(f"loaded {len(content_list)} content from {pickle_content_path}"))
 
     return content_list
 
@@ -510,36 +564,46 @@ def get_ollama_client() -> Client:
     return Client(host=ollama_host, timeout=15 * 60)  # timed out: 15min
 
 
-def ollama_chat(prompt: str, ) -> str:
+def ollama_chat(
+    prompt: str,
+) -> str:
     global ollama_host, ollama_model, gen_conf
 
     ollama_client = get_ollama_client()
 
-    history = [{'role': 'user', 'content': prompt}]
+    history = [{"role": "user", "content": prompt}]
     options = copy.deepcopy(gen_conf)
 
     try:
-        response = ollama_client.chat(model=ollama_model, messages=history, options=options, keep_alive=10)
+        response = ollama_client.chat(
+            model=ollama_model, messages=history, options=options, keep_alive=10
+        )
     except Exception as e:
         return f"Exception {e}"
 
     ans = copy.deepcopy(response["message"]["content"].strip())
     del response.message
 
-    for attr in ['total_duration', 'load_duration', 'prompt_eval_duration', 'eval_duration']:
+    for attr in [
+        "total_duration",
+        "load_duration",
+        "prompt_eval_duration",
+        "eval_duration",
+    ]:
         setattr(response, attr, getattr(response, attr) / 1e9)
     print(format_log(f"inference result meta data:\n{response}"))
 
-    if '</think>' in ans:
-        ans = ans.split('</think>')[-1]
-    if '</thinking>' in ans:
-        ans = ans.split('</thinking>')[-1]
+    if "</think>" in ans:
+        ans = ans.split("</think>")[-1]
+    if "</thinking>" in ans:
+        ans = ans.split("</thinking>")[-1]
     return ans.strip()
 
 
 # ==============================================================================
 # save parsed content
 def save_parsed_content(
+<<<<<<< HEAD
     md_writer: TextIOWrapper,
     content_list: list[Content],
     **kwargs,
@@ -547,11 +611,18 @@ def save_parsed_content(
     sys_image_folder = kwargs.get('sys_image_folder', os.path.expanduser("~/Pictures"))
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
     print(format_log(f'total {len(content_list)} contents'))
+=======
+    md_writer: TextIOWrapper, content_list: list[Content], **kwargs
+) -> None:
+    sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
+    print(format_log(f"using {sys_image_folder} as sys image save folder"))
+    print(format_log(f"total {len(content_list)} contents"))
+>>>>>>> ce293fe (format code)
 
-    md_writer.write('# ' + '=' * 8 + '  Original Content  ' + '=' * 8 + line_breaker)
+    md_writer.write("# " + "=" * 8 + "  Original Content  " + "=" * 8 + line_breaker)
 
     for i, content in enumerate(content_list):
-        lines = ''
+        lines = ""
 
         if content.content_type == ContentType.TEXT:
             lines += content.content + line_breaker
@@ -596,10 +667,15 @@ def translate_text_content(text: str) -> str:
 
     max_byte_len = 4 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
-    print(format_log(f'text byte length: {len(text)}, block num: {block_num}'))
+    print(format_log(f"text byte length: {len(text)}, block num: {block_num}"))
     full_result = ""
     for i in range(block_num):
+<<<<<<< HEAD
         segment = text[i * max_byte_len:(i + 1) * max_byte_len]
+=======
+        print(format_log(f"processing segment {i}"))
+        segment = text[i * max_byte_len : (i + 1) * max_byte_len]
+>>>>>>> ce293fe (format code)
 
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
@@ -615,29 +691,48 @@ def translate_text_content(text: str) -> str:
 
 @time_it
 def translate_content(
+<<<<<<< HEAD
     md_writer: TextIOWrapper,
     content_list: list[Content],
     **kwargs,
+=======
+    md_writer: TextIOWrapper, content_list: list[Content], **kwargs
+>>>>>>> ce293fe (format code)
 ) -> None:
     """
     Translate contents.
     Args:
     - content_list: a list of content.
     """
+<<<<<<< HEAD
     sys_image_folder = kwargs.get(
         'sys_image_folder',
         os.path.expanduser("~/Pictures"),
     )
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
+=======
+    sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
+    print(format_log(f"using {sys_image_folder} as sys image save folder"))
+>>>>>>> ce293fe (format code)
 
-    print(format_log(f'total {len(content_list)} contents'))
+    print(format_log(f"total {len(content_list)} contents"))
 
-    md_writer.write('# ' + '=' * 8 + '  Translated Content  ' + '=' * 8 + line_breaker)
+    md_writer.write("# " + "=" * 8 + "  Translated Content  " + "=" * 8 + line_breaker)
 
     for i, content in enumerate(content_list):
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+<<<<<<< HEAD
+>>>>>>> ce293fe (format code)
         print(format_log(f'translating content {i}, original content: {content}'))
         print('*' * 128)
         print('\n\n')
+=======
+        print(format_log(f"translating content {i}, original content:\n{content}"))
+        print("-" * 128)
+        print("\n\n")
+>>>>>>> f226014 (format code)
 
         if content.content_type == ContentType.TEXT:
             translated = translate_text_content(content.content)
@@ -646,15 +741,15 @@ def translate_content(
         elif content.content_type in [ContentType.TABLE, ContentType.IMAGE]:
             translated = translate_text_content(content.extra_discription)
             content.translated_extra_discription = translated
-            print(format_log(f'tranlated content: {translated}'))
+            print(format_log(f"tranlated content: {translated}"))
 
         else:
             pass
 
-        print(format_log(f'translation done'))
+        print(format_log(f"translation done"))
 
         # save translated content
-        lines = ''
+        lines = ""
         if content.content_type == ContentType.TEXT:
             lines += content.translated_content + line_breaker
 
@@ -686,32 +781,49 @@ def translate_content(
             pass
 
         lines = post_text_process(lines)
+<<<<<<< HEAD
         print(format_log(f'translated content: {lines}'))
         print('=' * 128)
         print('\n\n')
+=======
+        print(format_log(f"translated content: {lines}"))
+        print("\n\n")
+>>>>>>> f226014 (format code)
 
         md_writer.write(lines)
         md_writer.flush()
 
     # save pickle result
-    translated_pickle_content_path = os.path.join(output_dir, 'translated_content_list.pickle')
-    with open(translated_pickle_content_path, 'wb') as f:
+    translated_pickle_content_path = os.path.join(
+        output_dir, "translated_content_list.pickle"
+    )
+    with open(translated_pickle_content_path, "wb") as f:
         pickle.dump(content_list, f)
-        print(format_log(f'save translated  content list to {translated_pickle_content_path}'))
+        print(
+            format_log(
+                f"save translated  content list to {translated_pickle_content_path}"
+            )
+        )
 
 
 # ==============================================================================
 # summary func
 @time_it
 def summary_content(
+<<<<<<< HEAD
     md_writer: TextIOWrapper,
     content_list: list[Content],
     **kwargs,
+=======
+    md_writer: TextIOWrapper, content_list: list[Content], **kwargs
+>>>>>>> ce293fe (format code)
 ) -> None:
     global summary_prompt, src_lang, target_lang
-    print(f'{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}')
+    print(
+        f"{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}"
+    )
 
-    full_content = ''
+    full_content = ""
     for content in content_list:
         if content.content_type == ContentType.TEXT:
             full_content += content.content + line_breaker
@@ -726,45 +838,49 @@ def summary_content(
             full_content += content.extra_discription + line_breaker
 
         else:
-            print(format_log(f'unrecognized content: {content}'))
+            print(format_log(f"unrecognized content: {content}"))
 
-    print(format_log(f'full content length: {len(full_content)}'))
+    print(format_log(f"full content length: {len(full_content)}"))
     token_num, _ = estimate_token_num(full_content)
-    print(format_log(f'esitmated full content token num: {token_num}'))
+    print(format_log(f"esitmated full content token num: {token_num}"))
     if token_num > max_token_num:
         ratio = float(max_token_num) / token_num
-        print(format_log(f'truncate full content by ratio: {ratio}, original length: {len(full_content)}'))
-        full_content = full_content[:int(len(full_content) * ratio)]
+        print(
+            format_log(
+                f"truncate full content by ratio: {ratio}, original length: {len(full_content)}"
+            )
+        )
+        full_content = full_content[: int(len(full_content) * ratio)]
 
-    full_content = full_content.encode('utf-8', errors='ignore').decode('utf-8')
+    full_content = full_content.encode("utf-8", errors="ignore").decode("utf-8")
 
     formatted_promt = summary_prompt.format(
         src_lang=src_lang,
         target_lang=target_lang,
         content=full_content,
     )
-    print(format_log(f'formatted prompt: {formatted_promt}'))
+    print(format_log(f"formatted prompt: {formatted_promt}"))
 
     summary = ollama_chat(prompt=formatted_promt)
     summary = post_text_process(summary)
-    print(format_log(f'content summary: {summary}'))
+    print(format_log(f"content summary: {summary}"))
 
-    summary_save_path = os.path.join(output_dir, 'summary.txt')
-    with open(summary_save_path, 'w') as f:
+    summary_save_path = os.path.join(output_dir, "summary.txt")
+    with open(summary_save_path, "w") as f:
         f.write(summary)
-        print(format_log(f'summary saved to {summary_save_path}'))
+        print(format_log(f"summary saved to {summary_save_path}"))
 
     # save
-    md_writer.write('# ' + '=' * 8 + '  Paper Summary  ' + '=' * 8 + line_breaker)
+    md_writer.write("# " + "=" * 8 + "  Paper Summary  " + "=" * 8 + line_breaker)
     md_writer.write(summary + line_breaker)
-    md_writer.write('-' * 8 + line_breaker)
+    md_writer.write("-" * 8 + line_breaker)
     md_writer.flush()
 
 
 step_func = {
-    'summary': summary_content,
-    'translate': translate_content,
-    'original': save_parsed_content,
+    "summary": summary_content,
+    "translate": translate_content,
+    "original": save_parsed_content,
 }
 
 
@@ -775,7 +891,7 @@ def process(
     magic_config_path: str,
     sys_image_folder: str,
     final_md_file_save_dir: str,
-    steps: list[str] = ['summary', 'translate'],
+    steps: list[str] = ["summary", "translate"],
 ) -> None:
     """
     Process pdf file
@@ -787,30 +903,32 @@ def process(
     - sys_image_folder: image save folder.
     - final_md_file_save_dir: folder for saving final md file.
     """
-    print(format_log(f'processing started, required steps: {steps}'))
+    print(format_log(f"processing started, required steps: {steps}"))
 
     os.makedirs(output_dir, exist_ok=True)
-    name_without_suff = os.path.basename(file_path).rsplit('.', 1)[0]
-    print(format_log(f'file name without out suffix: {name_without_suff}'))
+    name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
+    print(format_log(f"file name without out suffix: {name_without_suff}"))
 
     # parse pdf
-    content_list = parse_pdf(file_path=file_path, asset_dir=output_dir, magic_config_path=magic_config_path)
+    content_list = parse_pdf(
+        file_path=file_path, asset_dir=output_dir, magic_config_path=magic_config_path
+    )
 
     # md writer
-    md_file_path = os.path.join(final_md_file_save_dir, f'{name_without_suff}.md')
-    md_writer = open(md_file_path, 'w')
+    md_file_path = os.path.join(final_md_file_save_dir, f"{name_without_suff}.md")
+    md_writer = open(md_file_path, "w")
 
-    md_writer.write(f'paper: {name_without_suff}' + line_breaker)
+    md_writer.write(f"paper: {name_without_suff}" + line_breaker)
 
     # apply step functions
     kwargs = {
-        'sys_image_folder': sys_image_folder,
+        "sys_image_folder": sys_image_folder,
     }
     for step in steps:
-        print(format_log(f'processing step: {step}'))
+        print(format_log(f"processing step: {step}"))
         step = step.strip()
         if step not in step_func:
-            print(format_log(f'step {step} not configured, ignore'))
+            print(format_log(f"step {step} not configured, ignore"))
             continue
 
         func = step_func[step]
@@ -821,46 +939,60 @@ def process(
         )
 
     md_writer.close()
-    print(format_log(f'parsed markdown saved to {md_file_path}'))
+    print(format_log(f"parsed markdown saved to {md_file_path}"))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Example of argparse usage.")
 
     parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument("--output_dir", help="path to assets folder", default="./tmp/parsed_asset")
-    parser.add_argument("--ollama_host", help="ollama host", default="http://127.0.0.1:11434")
-    parser.add_argument("--ollama_model", help="ollama model name", default="qwen3:30b-a3b")
-    parser.add_argument("--magic_config_path", help="magic pdf config path", default="./magic-pdf.json")
-    parser.add_argument("--sys_image_folder", help="final image save folder", default="./md_images")
-    parser.add_argument("--final_md_file_save_dir", help="final md file save folder", default=".")
+    parser.add_argument(
+        "--output_dir", help="path to assets folder", default="./tmp/parsed_asset"
+    )
+    parser.add_argument(
+        "--ollama_host", help="ollama host", default="http://127.0.0.1:11434"
+    )
+    parser.add_argument(
+        "--ollama_model", help="ollama model name", default="qwen3:30b-a3b"
+    )
+    parser.add_argument(
+        "--magic_config_path", help="magic pdf config path", default="./magic-pdf.json"
+    )
+    parser.add_argument(
+        "--sys_image_folder", help="final image save folder", default="./md_images"
+    )
+    parser.add_argument(
+        "--final_md_file_save_dir", help="final md file save folder", default="."
+    )
     parser.add_argument("--src_lang", help="source paper language", default="en")
     parser.add_argument("--target_lang", help="translate target language", default="zh")
-    parser.add_argument("--steps", help="required steps", default="summary,translate,original")
+    parser.add_argument(
+        "--steps", help="required steps", default="summary,translate,original"
+    )
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)
-    print(format_log(f'output dir: {output_dir}'))
+    print(format_log(f"output dir: {output_dir}"))
 
     magic_config_path = os.path.realpath(args.magic_config_path)
-    print(format_log(f'magic config path: {magic_config_path}'))
+    print(format_log(f"magic config path: {magic_config_path}"))
 
     sys_image_folder = os.path.realpath(args.sys_image_folder)
-    print(format_log(f'system image save folder: {sys_image_folder}'))
+    print(format_log(f"system image save folder: {sys_image_folder}"))
 
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-    print(format_log(f'final md save folder: {final_md_file_save_dir}'))
+    print(format_log(f"final md save folder: {final_md_file_save_dir}"))
 
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
 
     src_lang = lang_mapping[args.src_lang]
-    print(format_log(f'source language: {src_lang}'))
+    print(format_log(f"source language: {src_lang}"))
 
     target_lang = lang_mapping[args.target_lang]
-    print(format_log(f'target language: {target_lang}'))
+    print(format_log(f"target language: {target_lang}"))
 
-    print(format_log(f'processing file: {os.path.basename(args.file_path)}'))
+    print(format_log(f"processing file: {os.path.basename(args.file_path)}"))
 
     process(
         file_path=args.file_path,
@@ -868,5 +1000,5 @@ if __name__ == '__main__':
         magic_config_path=magic_config_path,
         sys_image_folder=sys_image_folder,
         final_md_file_save_dir=final_md_file_save_dir,
-        steps=args.steps.split(','),
+        steps=args.steps.split(","),
     )
