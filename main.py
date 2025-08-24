@@ -10,7 +10,7 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from io import TextIOWrapper
-from typing import Any, Callable, tuple
+from typing import Any, Callable
 
 from ollama import Client
 from strenum import StrEnum
