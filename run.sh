@@ -4,16 +4,14 @@ set -e
 cd $(dirname "$0")
 echo "working directory $(pwd)"
 
-file_path='/Users/xcoder/obsidian/Profession/PDF/Chain-of-Thought Prompting Elicits Reasoning in Large Language Models.pdf'
-output_dir='./parsed_assets'
+file_path='/Users/xcoder/obsidian/Profession/PDF/On the Theoretical Limitations of Embedding-Based Retrieval.pdf'
+output_dir='./tmp/parsed_assets'
 sys_image_folder='/Users/xcoder/obsidian/Profession/attachments'
-final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Paper Reading'
+final_md_file_save_dir='/Users/xcoder/obsidian/Profession/Processed PDF'
 src_lang='en'
 target_lang='zh'
 ollama_host='http://127.0.0.1:11434'
-# ollama_model='qwen3:30b-a3b'
-# ollama_model='qwen3:30b-a3b-instruct-2507-q8_0'
-ollama_model='qwen3:30b-a3b-thinking-2507-q8_0'
+ollama_model='qwen3:30b-a3b-thinking-2507-q4_K_M'
 steps='summary,translate'
 
 
