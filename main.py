@@ -402,12 +402,16 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
         # dump md
         image_dir = str(os.path.basename(local_image_dir))
-        md_content_str: list[str] = pipeline_union_make(pdf_info, MakeMode.MM_MD, image_dir) # type: ignore
+        md_content_str: list[str] = pipeline_union_make(
+            pdf_info, MakeMode.MM_MD, image_dir
+        )  # type: ignore
         md_writer.write_string(f"{pdf_file_name}.md", str(md_content_str))
 
         # dump content list
         image_dir = str(os.path.basename(local_image_dir))
-        content_list: list[dict[str, Any]] = pipeline_union_make(pdf_info, MakeMode.CONTENT_LIST, image_dir) # type: ignore
+        content_list: list[dict[str, Any]] = pipeline_union_make(
+            pdf_info, MakeMode.CONTENT_LIST, image_dir
+        )  # type: ignore
         md_writer.write_string(
             f"{pdf_file_name}_content_list.json",
             json.dumps(content_list, ensure_ascii=False, indent=4),
@@ -530,14 +534,14 @@ def parse_pdf(file_path: str, asset_dir: str, magic_config_path: str) -> list[Co
         print_exception(e)
         os._exit(0)
 
-    print(format_log("PDF parse job done"))
+    print("PDF parse job done")
 
     # parse returned content
     pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
-    print(format_log(f"loading content list from {pickle_content_path}"))
+    print(f"loading content list from {pickle_content_path}")
     with open(pickle_content_path, "rb") as f:
         content_list = pickle.load(f)
-    print(format_log(f"loaded {len(content_list)} content from {pickle_content_path}"))
+    print(f"loaded {len(content_list)} content from {pickle_content_path}")
 
     return content_list
 
@@ -555,9 +559,7 @@ def get_ollama_client() -> Client:
     return Client(host=ollama_host, timeout=15 * 60)  # timed out: 15min
 
 
-def ollama_chat(
-    prompt: str,
-) -> str:
+def ollama_chat(prompt: str) -> str:
     global ollama_host, ollama_model, gen_conf
 
     ollama_client = get_ollama_client()
@@ -582,7 +584,7 @@ def ollama_chat(
         "eval_duration",
     ]:
         setattr(response, attr, getattr(response, attr) / 1e9)
-    print(format_log(f"inference result meta data:\n{response}"))
+    print(f"inference result meta data:\n{response}")
 
     if "</think>" in ans:
         ans = ans.split("</think>")[-1]
@@ -597,15 +599,18 @@ def save_parsed_content(
     md_writer: TextIOWrapper, content_list: list[Content], **kwargs
 ) -> None:
     sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
-    print(format_log(f"using {sys_image_folder} as sys image save folder"))
-    print(format_log(f"total {len(content_list)} contents"))
+    print(f"using {sys_image_folder} as sys image save folder")
+    print(f"total {len(content_list)} contents")
 
     md_writer.write("# " + "=" * 8 + "  Original Content  " + "=" * 8 + line_breaker)
 
     for i, content in enumerate(content_list):
         lines = ""
 
-        if content.content_type == ContentType.TEXT or content.content_type == ContentType.EQUATION:
+        if (
+            content.content_type == ContentType.TEXT
+            or content.content_type == ContentType.EQUATION
+        ):
             lines += content.content + line_breaker
 
         elif content.content_type == ContentType.IMAGE:
@@ -646,10 +651,10 @@ def translate_text_content(text: str) -> str:
 
     max_byte_len = 8 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
-    print(format_log(f"text byte length: {len(text)}, block num: {block_num}"))
+    print(f"text byte length: {len(text)}, block num: {block_num}")
     full_result = ""
     for i in range(block_num):
-        print(format_log(f"processing segment {i}"))
+        print(f"processing segment {i}")
         segment = text[i * max_byte_len : (i + 1) * max_byte_len]
 
         formatted_prompt = translate_prompt.format(
@@ -674,8 +679,8 @@ def translate_content(
     - content_list: a list of content.
     """
     sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
-    print(format_log(f"using {sys_image_folder} as sys image save folder"))
-    print(format_log(f"total {len(content_list)} contents"))
+    print(f"using {sys_image_folder} as sys image save folder")
+    print(f"total {len(content_list)} contents")
 
     md_writer.write("# " + "=" * 8 + "  Translated Content  " + "=" * 8 + line_breaker)
 
@@ -684,11 +689,7 @@ def translate_content(
     while i < len(content_list):
         # image & table
         if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
-            print(
-                format_log(
-                    f"translating content {i}, type: {content_list[i].content_type}"
-                )
-            )
+            print(f"translating content {i}, type: {content_list[i].content_type}")
             # save images resources
             if content_list[i].content_path:
                 save_image(content_list[i].content_path, sys_image_folder)
@@ -699,7 +700,7 @@ def translate_content(
             # translate description
             translated = translate_text_content(content_list[i].extra_discription)
             translated = post_text_process(translated)
-            print(format_log(f"translated content:\n{translated}"))
+            print(f"translated content:\n{translated}")
             md_writer.write(translated + line_breaker)
 
             i = i + 1
@@ -707,11 +708,7 @@ def translate_content(
 
         # equation
         if content_list[i].content_type == ContentType.EQUATION:
-            print(
-                format_log(
-                    f"translating content {i}, type: {content_list[i].content_type}"
-                )
-            )
+            print(f"translating content {i}, type: {content_list[i].content_type}")
             lines = content_list[i].content + line_breaker
             md_writer.write(lines + line_breaker)
 
@@ -727,16 +724,14 @@ def translate_content(
         ):
             j += 1
         print(
-            format_log(
-                f"translating content {i} to {j - 1}, type: {content_list[i].content_type}"
-            )
+            f"translating content {i} to {j - 1}, type: {content_list[i].content_type}"
         )
         content = "\n".join([content.content for content in content_list[i:j]])
         content = ensure_utf(content)
-        print(format_log(f"content to translate:\n{content}"))
+        print(f"content to translate:\n{content}")
         translated = translate_text_content(content)
         translated = post_text_process(translated)
-        print(format_log(f"tranlated content:\n{translated}"))
+        print(f"tranlated content:\n{translated}")
         md_writer.write(translated + line_breaker)
 
         i = j
@@ -751,24 +746,28 @@ def summary_content(
     md_writer: TextIOWrapper, content_list: list[Content], **kwargs
 ) -> None:
     global summary_prompt, src_lang, target_lang
-    print(
-        f"{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}"
-    )
+    print(f"summary_content, src_lang={src_lang}, target_lang={target_lang}")
 
     full_content = ""
     for content in content_list:
-        if content.content_type == ContentType.TEXT or content.content_type == ContentType.EQUATION:
+        if (
+            content.content_type == ContentType.TEXT
+            or content.content_type == ContentType.EQUATION
+        ):
             full_content += content.content + line_breaker
 
-        elif content.content_type == ContentType.IMAGE or content.content_type == ContentType.TABLE:
+        elif (
+            content.content_type == ContentType.IMAGE
+            or content.content_type == ContentType.TABLE
+        ):
             full_content += content.extra_discription + line_breaker
 
         else:
-            print(format_log(f"unrecognized content: {content}"))
+            print(f"unrecognized content: {content}")
 
-    print(format_log(f"full content length: {len(full_content)}"))
+    print(f"full content length: {len(full_content)}")
     token_num, _ = estimate_token_num(full_content)
-    print(format_log(f"esitmated full content token num: {token_num}"))
+    print(f"esitmated full content token num: {token_num}")
     if token_num > max_token_num:
         ratio = float(max_token_num) / token_num
         print(
@@ -785,16 +784,16 @@ def summary_content(
         target_lang=target_lang,
         content=full_content,
     )
-    print(format_log(f"formatted prompt: {formatted_promt}"))
+    print(f"formatted prompt: {formatted_promt}")
 
     summary = ollama_chat(prompt=formatted_promt)
     summary = post_text_process(summary)
-    print(format_log(f"content summary: {summary}"))
+    print(f"content summary: {summary}")
 
     summary_save_path = os.path.join(output_dir, "summary.txt")
     with open(summary_save_path, "w") as f:
         f.write(summary)
-        print(format_log(f"summary saved to {summary_save_path}"))
+        print(f"summary saved to {summary_save_path}")
 
     # save
     md_writer.write("# " + "=" * 8 + "  Paper Summary  " + "=" * 8 + line_breaker)
@@ -829,11 +828,11 @@ def process(
     - sys_image_folder: image save folder.
     - final_md_file_save_dir: folder for saving final md file.
     """
-    print(format_log(f"processing started, required steps: {steps}"))
+    print(f"processing started, required steps: {steps}")
 
     os.makedirs(output_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
-    print(format_log(f"file name without out suffix: {name_without_suff}"))
+    print(f"file name without out suffix: {name_without_suff}")
 
     # parse pdf
     content_list = parse_pdf(
@@ -847,14 +846,12 @@ def process(
     md_writer.write(f"paper: {name_without_suff}" + line_breaker)
 
     # apply step functions
-    kwargs = {
-        "sys_image_folder": sys_image_folder,
-    }
+    kwargs = {"sys_image_folder": sys_image_folder}
     for step in steps:
-        print(format_log(f"processing step: {step}"))
+        print(f"processing step: {step}")
         step = step.strip()
         if step not in step_func:
-            print(format_log(f"step {step} not configured, ignore"))
+            print(f"step {step} not configured, ignore")
             continue
 
         func = step_func[step]
@@ -865,7 +862,7 @@ def process(
         )
 
     md_writer.close()
-    print(format_log(f"parsed markdown saved to {md_file_path}"))
+    print(f"parsed markdown saved to {md_file_path}")
 
 
 if __name__ == "__main__":
@@ -898,27 +895,27 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)
-    print(format_log(f"output dir: {output_dir}"))
+    print(f"output dir: {output_dir}")
 
     magic_config_path = os.path.realpath(args.magic_config_path)
-    print(format_log(f"magic config path: {magic_config_path}"))
+    print(f"magic config path: {magic_config_path}")
 
     sys_image_folder = os.path.realpath(args.sys_image_folder)
-    print(format_log(f"system image save folder: {sys_image_folder}"))
+    print(f"system image save folder: {sys_image_folder}")
 
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-    print(format_log(f"final md save folder: {final_md_file_save_dir}"))
+    print(f"final md save folder: {final_md_file_save_dir}")
 
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
 
     src_lang = lang_mapping[args.src_lang]
-    print(format_log(f"source language: {src_lang}"))
+    print(f"source language: {src_lang}")
 
     target_lang = lang_mapping[args.target_lang]
-    print(format_log(f"target language: {target_lang}"))
+    print(f"target language: {target_lang}")
 
-    print(format_log(f"processing file: {os.path.basename(args.file_path)}"))
+    print(f"processing file: {os.path.basename(args.file_path)}")
 
     process(
         file_path=args.file_path,
