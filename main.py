@@ -1,15 +1,12 @@
 import argparse
 import copy
 import logging
-import math
 import os
 import pickle
 import re
 import shutil
 import time
-import traceback
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
 from io import TextIOWrapper
 from typing import Any, Callable
 
@@ -338,7 +335,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
     os.environ["MINERU_MODEL_SOURCE"] = "local"
-    logging.info(format_log(f"setting magic pdf config path to {magic_config_path}"))
+    logging.info(f"setting magic pdf config path to {magic_config_path}")
 
     from mineru.backend.pipeline.model_json_to_middle_json import (
         result_to_middle_json as pipeline_result_to_middle_json,
