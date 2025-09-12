@@ -790,11 +790,7 @@ def summary_content(
     logging.info(f"esitmated full content token num: {token_num}")
     if token_num > max_token_num:
         ratio = float(max_token_num) / token_num
-        logging.info(
-            format_log(
-                f"truncate full content by ratio: {ratio}, original length: {len(full_content)}"
-            )
-        )
+        logging.info(f"truncate full content by ratio: {ratio}, original length: {len(full_content)}")
         full_content = full_content[: int(len(full_content) * ratio)]
 
     full_content = full_content.encode("utf-8", errors="ignore").decode("utf-8")
