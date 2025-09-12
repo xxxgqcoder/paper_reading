@@ -1,5 +1,6 @@
 import argparse
 import copy
+import logging
 import math
 import os
 import pickle
@@ -73,7 +74,7 @@ def time_it(func) -> Callable[..., Any]:
         begin = time.time_ns()
         ret = func(*kargs, **kwargs)
         elapse = (time.time_ns() - begin) // 1000000
-        print(
+        logging.info(
             f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000) // 1000}sec {elapse % 60000 % 1000}ms to finish"
         )
 
@@ -129,12 +130,6 @@ def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
         f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
         + line_breaker
     )
-
-
-def print_exception(e: Exception):
-    print(f"{datetime.now()}: Exception: {type(e).__name__} - {e}")
-    formatted_traceback = traceback.format_exc()
-    print(formatted_traceback)
 
 
 def estimate_token_num(text: str) -> tuple[int, list[str]]:
@@ -206,6 +201,7 @@ def format_list_as_str(l: list[Any]) -> str:
     return "\n".join([str(e) for e in l])
 
 
+<<<<<<< HEAD
 def format_log(text: str) -> str:
     return f"{datetime.now()}: {text}"
 
@@ -215,6 +211,8 @@ def format_log(text: str) -> str:
 # ==============================================================================
 =======
 =======
+=======
+>>>>>>> 17e3723 (use log)
 def ensure_utf(text: str) -> str:
     if text is None:
         return text
@@ -222,7 +220,39 @@ def ensure_utf(text: str) -> str:
     return text
 
 
+<<<<<<< HEAD
 >>>>>>> 77ebb81 (format code)
+=======
+# ------------------------------------------------------------------------------
+# logger
+initialized_root_logger = None
+
+
+def init_root_logger(
+    log_format: str = "%(asctime)-15s %(levelname)-4s %(filename)s:%(lineno)d: %(message)s",
+) -> None:
+    global initialized_root_logger
+    if initialized_root_logger:
+        return
+    initialized_root_logger = True
+
+    logger = logging.getLogger()
+    logger.handlers.clear()
+
+    formatter = logging.Formatter(log_format)
+
+    handler1 = logging.StreamHandler()
+    handler1.setFormatter(formatter)
+    logger.addHandler(handler1)
+
+    logger.setLevel(level=logging.INFO)
+    logging.captureWarnings(True)
+
+
+
+# ------------------------------------------------------------------------------
+# job executor
+>>>>>>> 17e3723 (use log)
 job_executor = None
 
 
@@ -348,7 +378,7 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
     magic_config_path = os.path.abspath(magic_config_path)
     os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
     os.environ["MINERU_MODEL_SOURCE"] = "local"
-    print(format_log(f"setting magic pdf config path to {magic_config_path}"))
+    logging.info(format_log(f"setting magic pdf config path to {magic_config_path}"))
 
     from mineru.backend.pipeline.model_json_to_middle_json import (
         result_to_middle_json as pipeline_result_to_middle_json,
@@ -552,12 +582,12 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
         # save content list
         pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
-        print(format_log(f"saving parsed content list to {pickle_content_path}"))
+        logging.info(f"saving parsed content list to {pickle_content_path}")
         with open(pickle_content_path, "wb") as f:
             pickle.dump(parsed_content_list, f)
 
     except Exception as e:
-        print_exception(e)
+        logging.error(e)
 
 
 @time_it
@@ -577,9 +607,10 @@ def parse_pdf(
     try:
         job_executor.shutdown(wait=True)
     except Exception as e:
-        print_exception(e)
+        logging.info(e)
         os._exit(0)
 
+<<<<<<< HEAD
     print(format_log("PDF parse job done"))
 
     # parse returned content
@@ -588,6 +619,16 @@ def parse_pdf(
     with open(pickle_content_path, "rb") as f:
         content_list = pickle.load(f)
     print(format_log(f"loaded {len(content_list)} content from {pickle_content_path}"))
+=======
+    logging.info("PDF parse job done")
+
+    # parse returned content
+    pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
+    logging.info(f"loading content list from {pickle_content_path}")
+    with open(pickle_content_path, "rb") as f:
+        content_list = pickle.load(f)
+    logging.info(f"loaded {len(content_list)} content from {pickle_content_path}")
+>>>>>>> 8a8d52c (use log)
 
     return content_list
 
@@ -632,7 +673,11 @@ def ollama_chat(
         "eval_duration",
     ]:
         setattr(response, attr, getattr(response, attr) / 1e9)
+<<<<<<< HEAD
     print(format_log(f"inference result meta data:\n{response}"))
+=======
+    logging.info(f"inference result meta data:\n{response}")
+>>>>>>> 8a8d52c (use log)
 
     if "</think>" in ans:
         ans = ans.split("</think>")[-1]
@@ -656,9 +701,15 @@ def save_parsed_content(
     md_writer: TextIOWrapper, content_list: list[Content], **kwargs
 ) -> None:
     sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
+<<<<<<< HEAD
     print(format_log(f"using {sys_image_folder} as sys image save folder"))
     print(format_log(f"total {len(content_list)} contents"))
 >>>>>>> ce293fe (format code)
+=======
+    logging.info(
+        f"using {sys_image_folder} as sys image save folder. total {len(content_list)} contents"
+    )
+>>>>>>> 8a8d52c (use log)
 
     md_writer.write("# " + "=" * 8 + "  Original Content  " + "=" * 8 + line_breaker)
 
@@ -703,6 +754,7 @@ def translate_text_content(text: str) -> str:
     if is_empty(text):
         return ""
 
+<<<<<<< HEAD
     max_byte_len = 4 * 1024
     block_num = math.ceil(len(text) / max_byte_len)
     print(format_log(f"text byte length: {len(text)}, block num: {block_num}"))
@@ -714,6 +766,13 @@ def translate_text_content(text: str) -> str:
         print(format_log(f"processing segment {i}"))
         segment = text[i * max_byte_len : (i + 1) * max_byte_len]
 >>>>>>> ce293fe (format code)
+=======
+    max_byte_len = 8 * 1024
+    full_result = ""
+    for i in range(0, len(text), max_byte_len):
+        logging.info(f"processing segment {i}")
+        segment = text[i : i + max_byte_len]
+>>>>>>> 8a8d52c (use log)
 
         formatted_prompt = translate_prompt.format(
             src_lang=src_lang,
@@ -750,6 +809,7 @@ def translate_content(
     print(format_log(f'using {sys_image_folder} as sys image save folder'))
 =======
     sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
+<<<<<<< HEAD
     print(format_log(f"using {sys_image_folder} as sys image save folder"))
 <<<<<<< HEAD
 >>>>>>> ce293fe (format code)
@@ -757,6 +817,10 @@ def translate_content(
 =======
 >>>>>>> 066c9f5 (block translating)
     print(format_log(f"total {len(content_list)} contents"))
+=======
+    logging.info(f"using {sys_image_folder} as sys image save folder")
+    logging.info(f"total {len(content_list)} contents")
+>>>>>>> 8a8d52c (use log)
 
     md_writer.write("# " + "=" * 8 + "  Translated Content  " + "=" * 8 + line_breaker)
 
@@ -781,10 +845,15 @@ def translate_content(
     while i < len(content_list):
         # image & table
         if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
+<<<<<<< HEAD
             print(
                 format_log(
                     f"translating content {i}, type: {content_list[i].content_type}"
                 )
+=======
+            logging.info(
+                f"translating content {i}, type: {content_list[i].content_type}"
+>>>>>>> 8a8d52c (use log)
             )
             # save images resources
             if content_list[i].content_path:
@@ -797,7 +866,11 @@ def translate_content(
             # translate description
             translated = translate_text_content(content_list[i].extra_discription)
             translated = post_text_process(translated)
+<<<<<<< HEAD
             print(format_log(f"translated content:\n{translated}"))
+=======
+            logging.info(f"translated content:\n{translated}")
+>>>>>>> 8a8d52c (use log)
             md_writer.write(translated + line_breaker)
 
             i = i + 1
@@ -805,10 +878,15 @@ def translate_content(
 
         # equation
         if content_list[i].content_type == ContentType.EQUATION:
+<<<<<<< HEAD
             print(
                 format_log(
                     f"translating content {i}, type: {content_list[i].content_type}"
                 )
+=======
+            logging.info(
+                f"translating content {i}, type: {content_list[i].content_type}"
+>>>>>>> 8a8d52c (use log)
             )
             lines = content_list[i].content + line_breaker
             md_writer.write(lines + line_breaker)
@@ -824,6 +902,7 @@ def translate_content(
             and content_list[j].content_type == ContentType.TEXT
         ):
             j += 1
+<<<<<<< HEAD
         print(
             format_log(
                 f"translating content {i} to {j - 1}, type: {content_list[i].content_type}"
@@ -835,6 +914,17 @@ def translate_content(
         translated = translate_text_content(content)
         translated = post_text_process(translated)
         print(format_log(f"tranlated content:\n{translated}"))
+=======
+        logging.info(
+            f"translating content {i} to {j - 1}, type: {content_list[i].content_type}"
+        )
+        content = "\n".join([content.content for content in content_list[i:j]])
+        content = ensure_utf(content)
+        logging.info(f"content to translate:\n{content}")
+        translated = translate_text_content(content)
+        translated = post_text_process(translated)
+        logging.info(f"tranlated content:\n{translated}")
+>>>>>>> 8a8d52c (use log)
         md_writer.write(translated + line_breaker)
 
         i = j
@@ -909,9 +999,13 @@ def summary_content(
 >>>>>>> ce293fe (format code)
 ) -> None:
     global summary_prompt, src_lang, target_lang
+<<<<<<< HEAD
     print(
         f"{datetime.now()}: summary_content, src_lang={src_lang}, target_lang={target_lang}"
     )
+=======
+    logging.info(f"summary_content, src_lang={src_lang}, target_lang={target_lang}")
+>>>>>>> 8a8d52c (use log)
 
     full_content = ""
     for content in content_list:
@@ -922,14 +1016,22 @@ def summary_content(
             full_content += content.extra_discription + line_breaker
 
         else:
+<<<<<<< HEAD
             print(format_log(f"unrecognized content: {content}"))
 
     print(format_log(f"full content length: {len(full_content)}"))
     token_num, _ = estimate_token_num(full_content)
     print(format_log(f"esitmated full content token num: {token_num}"))
+=======
+            logging.info(f"unrecognized content: {content}")
+
+    logging.info(f"full content length: {len(full_content)}")
+    token_num, _ = estimate_token_num(full_content)
+    logging.info(f"esitmated full content token num: {token_num}")
+>>>>>>> 8a8d52c (use log)
     if token_num > max_token_num:
         ratio = float(max_token_num) / token_num
-        print(
+        logging.info(
             format_log(
                 f"truncate full content by ratio: {ratio}, original length: {len(full_content)}"
             )
@@ -943,16 +1045,28 @@ def summary_content(
         target_lang=target_lang,
         content=full_content,
     )
+<<<<<<< HEAD
     print(format_log(f"formatted prompt: {formatted_promt}"))
 
     summary = ollama_chat(prompt=formatted_promt)
     summary = post_text_process(summary)
     print(format_log(f"content summary: {summary}"))
+=======
+    logging.info(f"formatted prompt: {formatted_promt}")
+
+    summary = ollama_chat(prompt=formatted_promt)
+    summary = post_text_process(summary)
+    logging.info(f"content summary: {summary}")
+>>>>>>> 8a8d52c (use log)
 
     summary_save_path = os.path.join(output_dir, "summary.txt")
     with open(summary_save_path, "w") as f:
         f.write(summary)
+<<<<<<< HEAD
         print(format_log(f"summary saved to {summary_save_path}"))
+=======
+        logging.info(f"summary saved to {summary_save_path}")
+>>>>>>> 8a8d52c (use log)
 
     # save
     md_writer.write("# " + "=" * 8 + "  Paper Summary  " + "=" * 8 + line_breaker)
@@ -987,11 +1101,19 @@ def process(
     - sys_image_folder: image save folder.
     - final_md_file_save_dir: folder for saving final md file.
     """
+<<<<<<< HEAD
     print(format_log(f"processing started, required steps: {steps}"))
 
     os.makedirs(output_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
     print(format_log(f"file name without out suffix: {name_without_suff}"))
+=======
+    logging.info(f"processing started, required steps: {steps}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
+    logging.info(f"file name without out suffix: {name_without_suff}")
+>>>>>>> 8a8d52c (use log)
 
     # parse pdf
     content_list = parse_pdf(
@@ -1009,10 +1131,17 @@ def process(
         "sys_image_folder": sys_image_folder,
     }
     for step in steps:
+<<<<<<< HEAD
         print(format_log(f"processing step: {step}"))
         step = step.strip()
         if step not in step_func:
             print(format_log(f"step {step} not configured, ignore"))
+=======
+        logging.info(f"processing step: {step}")
+        step = step.strip()
+        if step not in step_func:
+            logging.info(f"step {step} not configured, ignore")
+>>>>>>> 8a8d52c (use log)
             continue
 
         func = step_func[step]
@@ -1023,7 +1152,11 @@ def process(
         )
 
     md_writer.close()
+<<<<<<< HEAD
     print(format_log(f"parsed markdown saved to {md_file_path}"))
+=======
+    logging.info(f"parsed markdown saved to {md_file_path}")
+>>>>>>> 8a8d52c (use log)
 
 
 if __name__ == "__main__":
@@ -1053,9 +1186,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--steps", help="required steps", default="summary,translate,original"
     )
+
+    init_root_logger()
     args = parser.parse_args()
 
     output_dir = os.path.realpath(args.output_dir)
+<<<<<<< HEAD
     print(format_log(f"output dir: {output_dir}"))
 
     magic_config_path = os.path.realpath(args.magic_config_path)
@@ -1066,17 +1202,38 @@ if __name__ == "__main__":
 
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
     print(format_log(f"final md save folder: {final_md_file_save_dir}"))
+=======
+    logging.info(f"output dir: {output_dir}")
+
+    magic_config_path = os.path.realpath(args.magic_config_path)
+    logging.info(f"magic config path: {magic_config_path}")
+
+    sys_image_folder = os.path.realpath(args.sys_image_folder)
+    logging.info(f"system image save folder: {sys_image_folder}")
+
+    final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
+    logging.info(f"final md save folder: {final_md_file_save_dir}")
+>>>>>>> 8a8d52c (use log)
 
     ollama_host = args.ollama_host
     ollama_model = args.ollama_model
 
     src_lang = lang_mapping[args.src_lang]
+<<<<<<< HEAD
     print(format_log(f"source language: {src_lang}"))
 
     target_lang = lang_mapping[args.target_lang]
     print(format_log(f"target language: {target_lang}"))
 
     print(format_log(f"processing file: {os.path.basename(args.file_path)}"))
+=======
+    logging.info(f"source language: {src_lang}")
+
+    target_lang = lang_mapping[args.target_lang]
+    logging.info(f"target language: {target_lang}")
+
+    logging.info(f"processing file: {os.path.basename(args.file_path)}")
+>>>>>>> 8a8d52c (use log)
 
     process(
         file_path=args.file_path,
