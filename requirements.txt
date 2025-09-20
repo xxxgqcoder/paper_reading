@@ -1,5 +1,5 @@
-mineru[core]
+mineru
 ollama
 jupyterlab
-yapf
 StrEnum
+xxhash
