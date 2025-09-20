@@ -2,7 +2,6 @@ import argparse
 import base64
 import copy
 import functools
-from inspect import GEN_CLOSED
 import json
 import logging
 import os

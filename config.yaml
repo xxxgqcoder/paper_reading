@@ -1,0 +1,14 @@
+ollama_host: http://127.0.0.1:11434
+chat_model_name: qwen3:30b-a3b-thinking-2507-q4_K_M
+vision_model_name: qwen2.5vl:7b
+max_context_token_num: 16000
+cache_data_dir: /Users/xcoder/.cache/llm_chache
+
+parser_config_file_path: /Users/xcoder/projects/paper_reading/magic-pdf.json
+asset_save_dir: /Users/xcoder/obsidian/attachments
+
+gen_conf:
+    temperature: 0.7
+    top_p: 0.4
+    repeat_penalty: 1.2
+    num_ctx: 30000
