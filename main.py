@@ -359,9 +359,10 @@ def cache_it(
 
             result = func(*args, **kwargs)
             try:
-                with open(cache_path, "wb") as f:
-                    pickle.dump(result, f)
-                    Logger.info(f"Saved cache to {cache_path}")
+                if result:
+                    with open(cache_path, "wb") as f:
+                        pickle.dump(result, f)
+                        Logger.info(f"Saved cache to {cache_path}")
             except Exception as e:
                 Logger.error(f"Save cache exception: {e}")
 
@@ -412,25 +413,26 @@ _chat_client = OllamaClient(
     key_generator=lambda prompt, gen_conf: "llm_chat::prompt_hash::"
     + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
 )
-def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str:
+def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
     options = _ollama_options(gen_conf)
     history = [{"role": "user", "content": prompt}]
 
-    response = None
+    resp = None
     try:
-        response = _chat_client.chat(
+        resp = _chat_client.chat(
             model=Config.chat_model_name,
             messages=history,
             options=options,
             keep_alive=10,
         )
     except Exception as e:
-        return f"Exception: {e}"
+        Logger.error(f"LLM chat exception: {e}")
+        return None
 
-    if not response:
-        return "LLM error"
+    if not resp:
+        return None
 
-    ans = response["message"]["content"].strip()
+    ans = resp["message"]["content"].strip()
     if "</think>" in ans:
         ans = ans.split("</think>")[-1]
 
@@ -454,19 +456,20 @@ def image_chat(
     prompt: str,
     image_content: str,
     gen_conf: dict[str, Any],
-) -> str:
+) -> str | None:
     options = _ollama_options(gen_conf)
-    response = _vision_client.chat(
-        model=Config.vision_model_name,
-        messages=[{"role": "user", "content": prompt, "images": [image_content]}],
-        options=options,
-    )
+    resp = None
     try:
-        return response["message"]["content"]
+        resp = _vision_client.chat(
+            model=Config.vision_model_name,
+            messages=[{"role": "user", "content": prompt, "images": [image_content]}],
+            options=options,
+        )
     except Exception as e:
         Logger.error(f"Vision model chat exception: {e}")
+        return None
 
-    return ""
+    return resp["message"]["content"]
 
 
 # ----------------------------------------------------------------------------
@@ -933,10 +936,13 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
                     image_content=img_content,
                     gen_conf=Config.gen_conf.model_dump(),
                 )
+                if not img_description:
+                    img_description = "[LLM error]"
+
                 lines += (
                     md_img_path
                     + line_breaker
-                    + f"[[{line_breaker}{img_description}{line_breaker}]]"
+                    + f"```text{line_breaker}{img_description}{line_breaker}```"
                     + line_breaker
                 )
 
@@ -966,6 +972,8 @@ def translate_text_content(text: str) -> str:
             content=segment,
         )
         ret = llm_chat(prompt=formatted_prompt, gen_conf=Config.gen_conf.model_dump())
+        if not ret:
+            ret = "[LLM error]"
 
         full_result += ret
 
@@ -1066,6 +1074,8 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
     Logger.info(f"Formatted prompt:\n{formatted_promt}")
 
     summary = llm_chat(prompt=formatted_promt, gen_conf=Config.gen_conf.model_dump())
+    if not summary:
+        summary = "[LLM error]"
     summary = post_text_process(summary)
     Logger.info(f"Content summary:\n{summary}")
 
