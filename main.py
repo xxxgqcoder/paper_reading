@@ -1,384 +1,389 @@
-import argparse
-import copy
+from typing import Any
+
+from mineru.utils.draw_bbox import f
+from pydantic import BaseModel, Field
+from strenum import StrEnum
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
+import json
+import os
+import logging
+from logging.handlers import RotatingFileHandler
+import random
+import pickle
+
+import xxhash
+import tempfile
+import shutil
+import base64
+import asyncio
+import base64
+import functools
+import inspect
 import logging
 import os
-import pickle
-import re
-import shutil
 import time
-from concurrent.futures import ProcessPoolExecutor
-from io import TextIOWrapper
-from typing import Any, Callable
+import traceback
+from collections.abc import Callable
+from datetime import datetime, timezone
+from typing import Any, Callable, TypeVar
 
-from ollama import Client
-from strenum import StrEnum
-
-line_breaker = "\n\n"
-
-# global variables
-ollama_host = "http://127.0.0.1:11434"
-ollama_model = "qwen3:30b-a3b"
-
-lang_mapping = {"en": "英语", "zh": "中文"}
-gen_conf = {
-    "temperature": 0.5,
-    "top_p": 0.3,
-    "repeat_penalty": 1.1,
-    "num_ctx": 32 * 1024,
-}
-translate_prompt = """
-你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
-
-下面是需要翻译的内容：
-
-{content}
-
-上面是需要翻译的内容
-
-注意：
-- 如果要翻译的内容为引用文献、算法伪代码、代码、人名，则不需要翻译，直接返回原文
-- 你只需要输出最终翻译结果，不要输出逐步思考过程。
-
-现在开始逐步思考
-"""
-
-summary_prompt = """
-你是一个论文阅读助手，阅读下面的{src_lang}论文内容，并完成指令。
-
-下面是论文内容
+# -----------------------------------------------------------------------------------------------
+# data
 
 
-{content}
+def get_project_base_directory() -> str:
+    project_base = os.path.abspath(
+        os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    )
+    return project_base
 
 
-上面是论文内容
+class _Config(BaseSettings):
+    """Centralized configuration class for the entire Tiny RAG project."""
 
-指令：使用{target_lang}语言，总结{src_lang}论文内容，总结的内容需要包括论文主要创新点。
+    parser_config_file_path: str = Field("", description="path to parser config file")
+    asset_save_dir: str = Field(
+        "",
+        description="directory to save parsed asset files, including images and tables",
+    )
+    cache_data_dir: str = Field(default="./tmp", description="cache data directory")
 
-注意：
-- 忽略论文引用文献部分内容，只总结论文正文部分。
-- 你只需要输出最终总结结果，不要输出逐步思考过程。
-
-现在开始逐步思考
-"""
-max_token_num = 128 * 1024
-
-
-# ------------------------------------------------------------------------------
-# util funcs
-def time_it(func) -> Callable[..., Any]:
-    def wrapper(*kargs, **kwargs) -> Any:
-        begin = time.time_ns()
-        ret = func(*kargs, **kwargs)
-        elapse = (time.time_ns() - begin) // 1000000
-        logging.info(
-            f"func {func.__name__} took {elapse // 60000}min {(elapse % 60000) // 1000}sec {elapse % 60000 % 1000}ms to finish"
-        )
-
-        return ret
-
-    return wrapper
-
-
-def save_image(src_path: str, dst_dir: str) -> None:
-    dst_path = os.path.join(dst_dir, os.path.basename(src_path))
-    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
-    shutil.copyfile(src_path, dst_path)
-
-
-def safe_strip(raw: str) -> str:
-    if raw is None or len(raw) == 0:
-        return ""
-    raw = str(raw)
-    return raw.strip()
-
-
-def run_once(func) -> Callable[..., Any]:
-    has_run = False
-    ret = None
-
-    def wrapper(*args, **kwargs) -> Any:
-        nonlocal has_run, ret
-        if not has_run:
-            has_run = True
-            ret = func(*args, **kwargs)
-        return ret
-
-    return wrapper
-
-
-def is_empty(text: str) -> bool:
-    text = safe_strip(text)
-    if text is None:
-        return True
-    if len(text) == 0:
-        return True
-    if text == "[]":
-        return True
-    return False
-
-
-def format_md_image_path(sys_image_folder: str, img_name: str) -> str:
-    """
-    md image can only be corrct displayed when saved to same folder of the md file,
-    reformatted inserted image path for better display.
-    """
-    return (
-        f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
-        + line_breaker
+    model_config = SettingsConfigDict(
+        yaml_file=os.path.join(get_project_base_directory(), "config.yaml"),
+        env_prefix="TINY_RAG@@",
+        env_nested_delimiter="@@",
+        nested_model_default_partial_update=True,
     )
 
-
-def estimate_token_num(text: str) -> tuple[int, list[str]]:
-    """
-    Estimate tokens in text. Combine consecutive ascii character as one token,
-    treat each non-ascii character as one token. Each ascii token accounts for 2.3
-    token, each non-ascii token accounts for 1.2 token.
-
-    Args:
-    - text: the string to parse.
-
-    Return:
-    - int, estimated token num.
-    - list of string, estimated tokens.
-    """
-    if text is None or len(text.strip()) == 0:
-        return 0, []
-
-    text = text.strip()
-
-    def is_space(ch: str) -> bool:
-        if ord(ch) >= 128:
-            return False
-        if ch.strip() == "":
-            return True
-        return False
-
-    def token_bound_found(text: str, i: int, j: int) -> bool:
-        if ord(text[i]) < 127:
-            # space met or non-ascii character met
-            return is_space(text[j]) or ord(text[j]) > 127
-        else:
-            # count one non-ascii character as one token
-            return j > i
-
-    token_buffer = []
-    i = 0
-    while i < len(text):
-        j = i + 1
-        while j < len(text) and not token_bound_found(text, i, j):
-            j += 1
-
-        token = text[i:j]
-        token_buffer.append(token)
-
-        i = j
-        while i < len(text) and is_space(text[i]):
-            i += 1
-
-    token_num = 0
-    for token in token_buffer:
-        if ord(token[0]) < 128:
-            token_num += 2.3
-        else:
-            token_num += 1.5
-
-    return int(token_num), token_buffer
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        return (
+            env_settings,
+            YamlConfigSettingsSource(settings_cls),
+        )
 
 
-def post_text_process(text: str) -> str:
-    # strip space around $
-    p = r" *(\$) *"
-    text = re.sub(p, r"\1", text)
-
-    return text
+Config = _Config()  # type: ignore
 
 
-def format_list_as_str(l: list[Any]) -> str:
-    return "\n".join([str(e) for e in l])
-
-
-def ensure_utf(text: str) -> str:
-    if text is None:
-        return text
-    text = text.encode("utf-8", errors="ignore").decode("utf-8")
-    return text
-
-
-# ------------------------------------------------------------------------------
-# logger
-initialized_root_logger = None
-
-
-def init_root_logger(
-    log_format: str = "%(asctime)-15s %(levelname)-4s %(filename)s:%(lineno)d: %(message)s",
-) -> None:
-    global initialized_root_logger
-    if initialized_root_logger:
-        return
-    initialized_root_logger = True
-
-    logger = logging.getLogger()
-    logger.handlers.clear()
-
-    formatter = logging.Formatter(log_format)
-
-    handler1 = logging.StreamHandler()
-    handler1.setFormatter(formatter)
-    logger.addHandler(handler1)
-
-    logger.setLevel(level=logging.INFO)
-    logging.captureWarnings(True)
-
-
-
-# ------------------------------------------------------------------------------
-# job executor
-job_executor = None
-
-
-def get_job_executor() -> ProcessPoolExecutor:
-    global job_executor
-    if job_executor is None:
-        job_executor = ProcessPoolExecutor(max_workers=1)
-    return job_executor
-
-
-# ------------------------------------------------------------------------------
-# parser
 class ContentType(StrEnum):
     TEXT = "text"
-    EQUATION = "equation"
+    AUDIO = "audio"
     IMAGE = "image"
     TABLE = "table"
 
 
-# parse pdf
-class Content:
-    def __init__(
-        self,
-        content_type: ContentType,
-        content: str,
-        extra_discription: str,
-        content_path: str,
-        **kwargs,
-    ) -> None:
-        """
-        Parsed content.
-
-        Args:
-        - content_type
-        - content
-        - extra_discription: extra discription for the content, necessary for content like image / table.
-        - content_ucontent_pathrl: url to content, necessary for content like image / table.
-        """
-        self.content_type = content_type
-        self.content = content
-        self.extra_discription = extra_discription
-        self.content_path = content_path
-
-    def __str__(
-        self,
-    ) -> str:
-        if self.content_type in [ContentType.TEXT, ContentType.EQUATION]:
-            content = self.content.encode("utf-8", errors="ignore").decode("utf-8")
-            return content
-
-        elif self.content_type in [ContentType.IMAGE, ContentType.TABLE]:
-            return (
-                f"content is {self.content_type} \n"
-                + f"content path : {self.content_path} \n"
-                + f"content description: {self.extra_discription} \n"
-            )
-        else:
-            return "unrecognized content"
-
-
-def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> None:
+class Content(BaseModel):
     """
-    Parse PDF content and return content list. The result is a list of json object representing a pdf content block.
+    Document content object.
+    """
 
-    Dict object key explanation:
-        - `img_caption`: the image caption.
-        - `img_footnote`:
-        - `img_path`: path to parsed image.
-        - `page_idx`: page index.
-        - `table_body`: table content in html format.
-        - `table_caption`: table caption.
-        - `table_footnote`:
-        - `text`: the block text content.
-        - `text_format`: used in latex forumla block.
-        - `text_level`: used in headline block.
-        - `type`: block type, can be one of 'equation', 'image', 'table', 'text'.
+    content_type: ContentType = Field(ContentType.TEXT, description="content type")
+    file_path: str = Field("", description="original file path")
+    content: str = Field(
+        "",
+        description="the content, represented in string. If content type is not image / table, this field will be base64 encoded image content.",
+    )
+    extra_description: str = Field("", description="content extra description")
+    content_url: str = Field(
+        "",
+        description="url to the content, set when content is not suitable for directly insert into db, for example image / audio data",
+    )
 
-    Typical parsed paper content is organized by list of content block.
-    Headlines will stored in one separated block, with `text_level` = 1 while regular content block's `text_level` key is missing.
-    Headline blocks are followed by regular content block, including `text`, `equation`, `table` and `image` (distinguished by key `type`).
-    All captions are stored in each block's caption key, for example, caption of a parsed image is saved in `img_caption` key of the block.
 
-    Please refer https://github.com/opendatalab/MinerU/blob/master/demo/demo.py for more details.
+# -----------------------------------------------------------------------------------------------
+# util func
 
-    Parsed result is saved to `asset_dir`, the content list will be saved using pickle as well.
+
+_loggers = {}
+
+
+def get_logger(
+    log_module_name: str = "",
+    log_format: str = "%(asctime)-15s %(levelname)-4s %(filename)s:%(lineno)d: %(message)s",
+    need_stream: bool = True,
+):
+    """
+    Get logger for a specific module.
 
     Args:
-    - file_path: path to the pdf file
-    - asset_dir: folder for saving parsed assets.
-    - magic_config_path: magic pdf config path.
+    - log_module_name: Name of the module for which to get the logger. If empty.
+
+    Returns:
+    - Logger instance.
     """
-    import copy
-    import json
-    import os
-    from pathlib import Path
+    logger_key = f"{log_module_name}_{need_stream}"
+    if not logger_key:
+        logger_key = "default"
+    if logger_key in _loggers:
+        return _loggers[logger_key]
 
-    # NOTE: magic_pdf package uses singleton design and the model isntance is initialized when the module is imported,
-    # so postpone the import statement until parse method is called.
-    magic_config_path = os.path.abspath(magic_config_path)
-    os.environ["MINERU_TOOLS_CONFIG_JSON"] = magic_config_path
-    os.environ["MINERU_MODEL_SOURCE"] = "local"
-    logging.info(f"setting magic pdf config path to {magic_config_path}")
+    project_root_dir = os.path.abspath(
+        os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    )
+    logger = logging.getLogger(name=logger_key)
+    logger.handlers.clear()
+    log_path = os.path.abspath(
+        os.path.join(project_root_dir, "logs", f"{log_module_name}.log")
+    )
 
-    from mineru.backend.pipeline.model_json_to_middle_json import (
-        result_to_middle_json as pipeline_result_to_middle_json,
-    )
-    from mineru.backend.pipeline.pipeline_analyze import (
-        doc_analyze as pipeline_doc_analyze,
-    )
-    from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
-        union_make as pipeline_union_make,
-    )
-    from mineru.cli.common import (
-        convert_pdf_bytes_to_bytes_by_pypdfium2,
-        prepare_env,
-        read_fn,
-    )
-    from mineru.data.data_reader_writer import FileBasedDataWriter
-    from mineru.utils.draw_bbox import draw_layout_bbox, draw_span_bbox
-    from mineru.utils.enum_class import MakeMode
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    formatter = logging.Formatter(log_format)
 
+    handler1 = RotatingFileHandler(log_path, maxBytes=10 * 1024 * 1024, backupCount=1)
+    handler1.setFormatter(formatter)
+    logger.addHandler(handler1)
+
+    if need_stream:
+        handler2 = logging.StreamHandler()
+        handler2.setFormatter(formatter)
+        logger.addHandler(handler2)
+    else:
+        logger.propagate = False
+
+    logger.setLevel(level=logging.INFO)
+    logging.captureWarnings(True)
+
+    _loggers[logger_key] = logger
+    return logger
+
+
+Logger = get_logger()
+
+
+def time_it(prefix: str = "") -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*kargs, **kwargs):
+            begin = time.time_ns()
+            ret = func(*kargs, **kwargs)
+            elapse = (time.time_ns() - begin) // 1000000
+
+            func_name = f"{prefix} {func.__name__}" if prefix else func.__name__
+            Logger.info(
+                f"{func_name} took {elapse // 60000}min {(elapse % 60000) // 1000}sec {elapse % 60000 % 1000}ms to finish"
+            )
+
+            return ret
+
+        return wrapper
+
+    return decorator
+
+
+def hash64(content: bytes) -> str:
+    return xxhash.xxh64(content).hexdigest()
+
+
+def safe_encode(text: str) -> str:
     try:
+        return text.encode(encoding="utf-8", errors="ignore").decode(
+            encoding="utf-8", errors="ignore"
+        )
+    except Exception as e:
+        Logger.error(f"safe encode error: {e}")
+        return ""
+
+
+def load_base64_image(p: str) -> str:
+    """load image as base64 encoded string"""
+    with open(p, "rb") as f:
+        image_bytes = f.read()
+        base64_string = base64.b64encode(image_bytes).decode("utf-8")
+
+    return base64_string
+
+
+def safe_strip(d: Any) -> str:
+    """
+    Safely strip d.
+    """
+    if d is None:
+        return ""
+    if isinstance(d, str):
+        return d.strip()
+    return str(d).strip()
+
+
+T = TypeVar("T")
+
+
+def cache_it(key_generator: Callable[..., str]) -> Callable[..., Callable[..., T]]:
+    """
+    Redis cache decorator with customized key generator.
+
+    Args:
+    - key_generator: Function that takes the same args as decorated function and returns cache key
+    - key_ttl_seconds: Time to live for the cache key in seconds (default: 24 hours)
+    """
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> T:
+            cache_key = key_generator(*args, **kwargs)
+            cache_path = os.path.join(Config.cache_data_dir, f"{cache_key}.pickle")
+            try:
+                with open(cache_path, "rb") as f:
+                    return pickle.load(f)
+            except Exception as e:
+                Logger.error(f"Load cache exception: {e}")
+
+            result = func(*args, **kwargs)
+            try:
+                with open(cache_path, "wb") as f:
+                    pickle.dump(result, f)
+            except Exception as e:
+                Logger.error(f"Save cache exception: {e}")
+
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+# -----------------------------------------------------------------------------------------------
+
+
+class PDFParser:
+    """
+    PDF parser implementation, backed by [MinerU](https://github.com/opendatalab/MinerU).
+    """
+
+    def __init__(self):
+        super().__init__()
+
+        with open(file=Config.parser_config_file_path) as f:  # type: ignore
+            conf = json.load(f)
+
+        Logger.info(f"Parsr config: {json.dumps(conf, indent=4)}")
+
+        # set environment variable for magic_pdf to load config json file
+        os.environ["MINERU_TOOLS_CONFIG_JSON"] = Config.parser_config_file_path
+        os.environ["MINERU_MODEL_SOURCE"] = conf.get("mineru_model_source", "local")
+
+    def key_generator(self, file_path) -> str:
+        file_bytes = b""
+        try:
+            with open(file_path, "rb") as f:
+                file_bytes = f.read()
+        except:
+            return random.random().hex()
+
+        return "parser::file_content_hash::" + hash64(file_bytes)
+
+    @time_it("pdf parser")
+    @cache_it(key_generator=key_generator)
+    def parse(self, file_path: str) -> list[Content]:
+        asset_save_dir = Config.asset_save_dir
+        os.makedirs(asset_save_dir, exist_ok=True)
+        self.file_path = file_path
+
+        # get original chunk list
+        temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        temp_asset_dir = temp_dir.name
+        Logger.info(f"temp asset directory: {temp_asset_dir}")
+
+        contents = self.parse_pdf_content(
+            file_path=file_path,
+            temp_asset_dir=temp_asset_dir,
+            asset_save_dir=asset_save_dir,
+        )
+        Logger.info(f"Original content block num: {len(contents)}")
+
+        temp_dir.cleanup()
+        return contents
+
+    def parse_pdf_content(
+        self, file_path: str, temp_asset_dir: str, asset_save_dir: str
+    ) -> list[Content]:
+        """
+        Parse PDF content and return content list.
+        The result is a list of json oject representing a pdf content block.
+
+        Dict object key explanation:
+            - `img_caption`: the image caption.
+            - `img_footnote`:
+            - `img_path`: path to parsed image.
+            - `page_idx`: page index.
+            - `table_body`: table content in html format.
+            - `table_caption`: table caption.
+            - `table_footnote`:
+            - `text`: the block text content.
+            - `text_format`: used in latex forumla block.
+            - `text_level`: used in headline block.
+            - `type`: block type, can be one of 'equation', 'image', 'table', 'text'.
+
+        Typical parsed paper content is organized as list of content block.
+        Headlines will stored in one separated block, with `text_level` = 1 while regular content block's `text_level` key is missing.
+        Headline blocks are followed by regular content block, including `text`, `equation`, `table` and `image` (distinguished by key `type`).
+        All captions are stored in each block's caption key, for example, caption of a parsed image is saved in `img_caption` key of the block.
+
+        See https://github.com/opendatalab/MinerU/blob/master/demo/demo.py for more details.
+
+        Returns:
+        - A list of parsed chunk.
+        """
+        # NOTE: magic_pdf package uses singleton design and the model isntance is initialized when the module is imported,
+        # so postpone the import statement until parse method is called.
+
+        import copy
+        from pathlib import Path
+
+        from mineru.backend.pipeline.model_json_to_middle_json import (
+            result_to_middle_json as pipeline_result_to_middle_json,
+        )
+        from mineru.backend.pipeline.pipeline_analyze import (
+            doc_analyze as pipeline_doc_analyze,
+        )
+        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
+            union_make as pipeline_union_make,
+        )
+        from mineru.cli.common import (
+            convert_pdf_bytes_to_bytes_by_pypdfium2,
+            prepare_env,
+            read_fn,
+        )
+        from mineru.data.data_reader_writer import FileBasedDataWriter
+        from mineru.utils.draw_bbox import draw_layout_bbox, draw_span_bbox
+        from mineru.utils.enum_class import MakeMode
+
         # prepare env
         try:
-            shutil.rmtree(asset_dir)
-        except:
+            shutil.rmtree(temp_asset_dir)
+        except Exception as e:
+            Logger.error(f"Remove temp asset dir exception: {e}")
             pass
-        os.makedirs(asset_dir, exist_ok=True)
+        os.makedirs(temp_asset_dir, exist_ok=True)
 
-        p_lang_list = ["ch"]
+        lang = "ch"
         start_page_id = 0
         end_page_id = None
         parse_method = "auto"
 
-        pdf_file_name = str(Path(file_path).stem)
+        file_name = str(Path(file_path).stem)
         pdf_bytes = read_fn(file_path)
+
         new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(
             pdf_bytes, start_page_id, end_page_id
         )
 
-        # document parsing
         infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = (
             pipeline_doc_analyze(
                 [new_pdf_bytes],
-                p_lang_list,
+                [lang],
                 parse_method=parse_method,
                 formula_enable=True,
                 table_enable=True,
@@ -388,14 +393,13 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
         model_list = infer_results[0]
         model_json = copy.deepcopy(model_list)
         local_image_dir, local_md_dir = prepare_env(
-            asset_dir, pdf_file_name, parse_method
+            temp_asset_dir, file_name, parse_method
         )
         image_writer, md_writer = (
             FileBasedDataWriter(local_image_dir),
             FileBasedDataWriter(local_md_dir),
         )
 
-        # content conversion
         middle_json = pipeline_result_to_middle_json(
             model_list,
             all_image_lists[0],
@@ -410,19 +414,17 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
 
         # draw span and layout
         draw_layout_bbox(
-            pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_layout.pdf"
+            pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_layout.pdf"
         )
-        draw_span_bbox(
-            pdf_info, new_pdf_bytes, local_md_dir, f"{pdf_file_name}_span.pdf"
-        )
-        md_writer.write(f"{pdf_file_name}_origin.pdf", new_pdf_bytes)
+        draw_span_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_span.pdf")
+        md_writer.write(f"{file_name}_origin.pdf", new_pdf_bytes)
 
         # dump md
         image_dir = str(os.path.basename(local_image_dir))
         md_content_str: list[str] = pipeline_union_make(
             pdf_info, MakeMode.MM_MD, image_dir
         )  # type: ignore
-        md_writer.write_string(f"{pdf_file_name}.md", str(md_content_str))
+        md_writer.write_string(f"{file_name}.md", str(md_content_str))
 
         # dump content list
         image_dir = str(os.path.basename(local_image_dir))
@@ -430,516 +432,159 @@ def parse_pdf_job(file_path: str, asset_dir: str, magic_config_path: str) -> Non
             pdf_info, MakeMode.CONTENT_LIST, image_dir
         )  # type: ignore
         md_writer.write_string(
-            f"{pdf_file_name}_content_list.json",
+            f"{file_name}_content_list.json",
             json.dumps(content_list, ensure_ascii=False, indent=4),
         )
 
         # dump middle json
         md_writer.write_string(
-            f"{pdf_file_name}_middle.json",
+            f"{file_name}_middle.json",
             json.dumps(middle_json, ensure_ascii=False, indent=4),
         )
 
         # dump model json
         md_writer.write_string(
-            f"{pdf_file_name}_model.json",
+            f"{file_name}_model.json",
             json.dumps(model_json, ensure_ascii=False, indent=4),
         )
 
-        # update image path to absolute path
-        for content in content_list:
-            img_path = content.get("img_path", None)
-            if img_path:
-                content["img_path"] = os.path.realpath(
-                    os.path.join(asset_dir, pdf_file_name, parse_method, img_path)
-                )
-
         # parse content list
-        parsed_content_list = []
-        for raw_content in content_list:
-            content_type = raw_content.get("type", None)
-            content = None
+        def _save_image(src_path: str, dst_dir: str) -> None:
+            dst_path = os.path.join(dst_dir, os.path.basename(src_path))
+            shutil.copyfile(src_path, dst_path)
 
-            if content_type in ["text", "equation"]:
-                text = raw_content.get("text", "")
-                if raw_content.get("text_level", -1) == 1:
-                    text = "# " + text
-                content = Content(
-                    content_type=ContentType.TEXT
-                    if content_type == "text"
-                    else ContentType.EQUATION,
-                    content=text,
-                    extra_discription="",
-                    content_path="",
+        def _is_valid_content(content: dict[str, Any]) -> bool:
+            """
+            There are corner cases where returned blocks dont contain expected keys or values are empty.
+
+            Returns:
+            - bool: true if block is valid.
+            """
+            # missing key
+            if "type" not in content:
+                return False
+            # text / equation
+            if content["type"] in ["text", "equation"]:
+                return "text" in content
+            # image
+            if content["type"] == "image":
+                return "img_path" in content and len(content["img_path"]) > 0
+            # table
+            if content["type"] == "table":
+                return "table_body" in content
+            return True
+
+        def _format_caption(caption: Any) -> str:
+            """
+            Format caption as text.
+            """
+            if isinstance(caption, list):
+                ret = "\n".join([str(e) for e in caption])
+                return ret
+            return str(caption)
+
+        contents = []
+        for content in content_list:
+            if not _is_valid_content(content):
+                Logger.info(f"Invalid content: {json.dumps(content, indent=4)}")
+                continue
+
+            # text / formula
+            if content["type"] in ["text", "equation"]:
+                text = self.strip_text_content([content["text"]])
+                if content.get("text_level", 0) == 1:
+                    text = "# " + text  # headline level 1
+                contents.append(
+                    Content(
+                        content_type=ContentType.TEXT,
+                        file_path=self.file_path,
+                        content=safe_encode(text),
+                        extra_description="",
+                        content_url="",
+                    )
                 )
-            elif content_type == "image":
-                img_caption = raw_content.get("img_caption", None)
-                if isinstance(img_caption, list):
-                    img_caption = format_list_as_str(img_caption)
 
-                img_footnote = raw_content.get("img_footnote", None)
-                if isinstance(img_footnote, list):
-                    img_footnote = format_list_as_str(img_footnote)
+            # image
+            elif content["type"] in ["image"]:
+                texts = [
+                    _format_caption(content.get("img_caption", "")),
+                    _format_caption(content.get("img_footnote", "")),
+                ]
+                extra_description = self.strip_text_content(texts)
+                if len(extra_description) == 0:
+                    extra_description = "no caption for this image"
 
-                img_path = raw_content.get("img_path", "")
-                text = ""
-                if img_caption:
-                    text += img_caption + line_breaker
-                if img_footnote:
-                    text += img_footnote + line_breaker
-
-                content = Content(
-                    content_type=ContentType.IMAGE,
-                    content="",
-                    extra_discription=text,
-                    content_path=img_path,
+                # NOTE: hard coded image path format
+                abs_img_path = os.path.join(
+                    temp_asset_dir,
+                    str(Path(self.file_path).stem),
+                    "auto",
+                    content["img_path"],
                 )
-            elif content_type == "table":
-                table_body = raw_content.get("table_body", "")
-                table_caption = raw_content.get("table_caption", "")
-                if isinstance(table_caption, list):
-                    table_caption = format_list_as_str(table_caption)
+                _save_image(abs_img_path, asset_save_dir)
 
-                table_footnote = raw_content.get("table_footnote", "")
-                if isinstance(table_footnote, list):
-                    table_footnote = format_list_as_str(table_footnote)
+                contents.append(
+                    Content(
+                        content_type=ContentType.IMAGE,
+                        file_path=self.file_path,
+                        content=load_base64_image(abs_img_path),
+                        extra_description=safe_encode(extra_description),
+                        content_url=os.path.join(
+                            asset_save_dir, os.path.basename(abs_img_path)
+                        ),
+                    )
+                )
 
-                img_path = raw_content.get("img_path", "")
-                text = ""
-                # NOTE: donot append parsed table body to content
-                # if table_body:
-                #     text += str(table_body) + line_breaker
+            # table
+            elif content["type"] in ["table"]:
+                texts = [
+                    _format_caption(content.get("table_caption", "")),
+                    _format_caption(content.get("table_footnote", "")),
+                ]
+                extra_description = self.strip_text_content(texts)
+                if len(extra_description) == 0:
+                    extra_description = "no caption for this table"
 
-                if table_caption:
-                    text += table_caption + line_breaker
-                if table_footnote:
-                    text += table_footnote + line_breaker
+                table_body = content.get("table_body", "")
+                # NOTE: ignore table body
+                # extra_description += "\n\n\n\nTable content:\n" + table_body
 
-                content = Content(
-                    content_type=ContentType.TABLE,
-                    content="",
-                    extra_discription=text,
-                    content_path=img_path,
+                abs_img_path = os.path.join(
+                    temp_asset_dir,
+                    str(Path(self.file_path).stem),
+                    "auto",
+                    content["img_path"],
+                )
+                if content["img_path"]:
+                    _save_image(abs_img_path, asset_save_dir)
+
+                contents.append(
+                    Content(
+                        content_type=ContentType.TABLE,
+                        file_path=self.file_path,
+                        content=load_base64_image(abs_img_path),
+                        extra_description=extra_description,
+                        content_url=os.path.join(
+                            asset_save_dir, os.path.basename(abs_img_path)
+                        )
+                        if content["img_path"]
+                        else "",
+                    )
                 )
             else:
-                raise Exception(f"unknown content type: {content_type}")
-            parsed_content_list.append(content)
-
-        # save content list
-        pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
-        logging.info(f"saving parsed content list to {pickle_content_path}")
-        with open(pickle_content_path, "wb") as f:
-            pickle.dump(parsed_content_list, f)
-
-    except Exception as e:
-        logging.error(e)
-
-
-@time_it
-def parse_pdf(file_path: str, asset_dir: str, magic_config_path: str) -> list[Content]:
-    # submit job
-    job_executor = get_job_executor()
-    job_executor.submit(
-        parse_pdf_job,
-        file_path=file_path,
-        asset_dir=asset_dir,
-        magic_config_path=magic_config_path,
-    )
-    try:
-        job_executor.shutdown(wait=True)
-    except Exception as e:
-        logging.info(e)
-        os._exit(0)
-
-    logging.info("PDF parse job done")
-
-    # parse returned content
-    pickle_content_path = os.path.join(asset_dir, "content_list.pickle")
-    logging.info(f"loading content list from {pickle_content_path}")
-    with open(pickle_content_path, "rb") as f:
-        content_list = pickle.load(f)
-    logging.info(f"loaded {len(content_list)} content from {pickle_content_path}")
-
-    return content_list
-
-
-# ------------------------------------------------------------------------------
-# ollama interface
-the_ollama_client = None
-
-
-def get_ollama_client() -> Client:
-    global ollama_host
-
-    if the_ollama_client:
-        return the_ollama_client
-    return Client(host=ollama_host, timeout=15 * 60)  # timed out: 15min
-
-
-def ollama_chat(prompt: str) -> str:
-    global ollama_host, ollama_model, gen_conf
-
-    ollama_client = get_ollama_client()
-
-    history = [{"role": "user", "content": prompt}]
-    options = copy.deepcopy(gen_conf)
-
-    try:
-        response = ollama_client.chat(
-            model=ollama_model, messages=history, options=options, keep_alive=10
-        )
-    except Exception as e:
-        return f"Exception {e}"
-
-    ans = copy.deepcopy(response["message"]["content"].strip())
-    del response.message
-
-    for attr in [
-        "total_duration",
-        "load_duration",
-        "prompt_eval_duration",
-        "eval_duration",
-    ]:
-        setattr(response, attr, getattr(response, attr) / 1e9)
-    logging.info(f"inference result meta data:\n{response}")
-
-    if "</think>" in ans:
-        ans = ans.split("</think>")[-1]
-    if "</thinking>" in ans:
-        ans = ans.split("</thinking>")[-1]
-    return ans.strip()
-
-
-# ------------------------------------------------------------------------------
-# save parsed content
-def save_parsed_content(
-    md_writer: TextIOWrapper, content_list: list[Content], **kwargs
-) -> None:
-    sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
-    logging.info(
-        f"using {sys_image_folder} as sys image save folder. total {len(content_list)} contents"
-    )
-
-    md_writer.write("# " + "=" * 8 + "  Original Content  " + "=" * 8 + line_breaker)
-
-    for i, content in enumerate(content_list):
-        lines = ""
-
-        if (
-            content.content_type == ContentType.TEXT
-            or content.content_type == ContentType.EQUATION
-        ):
-            lines += content.content + line_breaker
-
-        elif content.content_type == ContentType.IMAGE:
-            # copy image
-            if content.content_path:
-                img_name = os.path.basename(content.content_path)
-                save_image(content.content_path, sys_image_folder)
-
-                lines += format_md_image_path(sys_image_folder, img_name)
-                lines += line_breaker
-
-            lines += content.extra_discription + line_breaker
-
-        elif content.content_type == ContentType.TABLE:
-            lines += str(content.content) + content.extra_discription + line_breaker
-
-            # copy image
-            if content.content_path:
-                img_name = os.path.basename(content.content_path)
-                save_image(content.content_path, sys_image_folder)
-
-                lines += format_md_image_path(sys_image_folder, img_name)
-                lines += line_breaker
-        else:
-            pass
-
-        lines = post_text_process(lines)
-        md_writer.write(lines)
-        md_writer.flush()
-
-
-# ------------------------------------------------------------------------------
-# translate func
-def translate_text_content(text: str) -> str:
-    global translate_prompt, src_lang, target_lang
-    if is_empty(text):
-        return ""
-
-    max_byte_len = 8 * 1024
-    full_result = ""
-    for i in range(0, len(text), max_byte_len):
-        logging.info(f"processing segment {i}")
-        segment = text[i : i + max_byte_len]
-
-        formatted_prompt = translate_prompt.format(
-            src_lang=src_lang,
-            target_lang=target_lang,
-            content=segment,
-        )
-        ret = ollama_chat(prompt=formatted_prompt)
-
-        full_result += ret
-
-    return full_result
-
-
-@time_it
-def translate_content(
-    md_writer: TextIOWrapper, content_list: list[Content], **kwargs
-) -> None:
-    """
-    Translate contents.
-    Args:
-    - content_list: a list of content.
-    """
-    sys_image_folder = kwargs.get("sys_image_folder", os.path.expanduser("~/Pictures"))
-    logging.info(f"using {sys_image_folder} as sys image save folder")
-    logging.info(f"total {len(content_list)} contents")
-
-    md_writer.write("# " + "=" * 8 + "  Translated Content  " + "=" * 8 + line_breaker)
-
-    i = 0
-    max_content_num = 20
-    while i < len(content_list):
-        # image & table
-        if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
-            logging.info(
-                f"translating content {i}, type: {content_list[i].content_type}"
-            )
-            # save images resources
-            if content_list[i].content_path:
-                save_image(content_list[i].content_path, sys_image_folder)
-                img_name = os.path.basename(content_list[i].content_path)
-                img_path = format_md_image_path(sys_image_folder, img_name)
-                md_writer.write(img_path + line_breaker)
-
-            # translate description
-            translated = translate_text_content(content_list[i].extra_discription)
-            translated = post_text_process(translated)
-            logging.info(f"translated content:\n{translated}")
-            md_writer.write(translated + line_breaker)
-
-            i = i + 1
-            continue
-
-        # equation
-        if content_list[i].content_type == ContentType.EQUATION:
-            logging.info(
-                f"translating content {i}, type: {content_list[i].content_type}"
-            )
-            lines = content_list[i].content + line_breaker
-            md_writer.write(lines + line_breaker)
-
-            i = i + 1
-            continue
-
-        # text
-        j = i + 1
-        while (
-            j < len(content_list)
-            and j - i < max_content_num
-            and content_list[j].content_type == ContentType.TEXT
-        ):
-            j += 1
-        logging.info(
-            f"translating content {i} to {j - 1}, type: {content_list[i].content_type}"
-        )
-        content = "\n".join([content.content for content in content_list[i:j]])
-        content = ensure_utf(content)
-        logging.info(f"content to translate:\n{content}")
-        translated = translate_text_content(content)
-        translated = post_text_process(translated)
-        logging.info(f"tranlated content:\n{translated}")
-        md_writer.write(translated + line_breaker)
-
-        i = j
-
-    md_writer.flush()
-
-
-# ------------------------------------------------------------------------------
-# summary func
-@time_it
-def summary_content(
-    md_writer: TextIOWrapper, content_list: list[Content], **kwargs
-) -> None:
-    global summary_prompt, src_lang, target_lang
-    logging.info(f"summary_content, src_lang={src_lang}, target_lang={target_lang}")
-
-    full_content = ""
-    for content in content_list:
-        if (
-            content.content_type == ContentType.TEXT
-            or content.content_type == ContentType.EQUATION
-        ):
-            full_content += content.content + line_breaker
-
-        elif (
-            content.content_type == ContentType.IMAGE
-            or content.content_type == ContentType.TABLE
-        ):
-            full_content += content.extra_discription + line_breaker
-
-        else:
-            logging.info(f"unrecognized content: {content}")
-
-    logging.info(f"full content length: {len(full_content)}")
-    token_num, _ = estimate_token_num(full_content)
-    logging.info(f"esitmated full content token num: {token_num}")
-    if token_num > max_token_num:
-        ratio = float(max_token_num) / token_num
-        logging.info(f"truncate full content by ratio: {ratio}, original length: {len(full_content)}")
-        full_content = full_content[: int(len(full_content) * ratio)]
-
-    full_content = full_content.encode("utf-8", errors="ignore").decode("utf-8")
-
-    formatted_promt = summary_prompt.format(
-        src_lang=src_lang,
-        target_lang=target_lang,
-        content=full_content,
-    )
-    logging.info(f"formatted prompt: {formatted_promt}")
-
-    summary = ollama_chat(prompt=formatted_promt)
-    summary = post_text_process(summary)
-    logging.info(f"content summary: {summary}")
-
-    summary_save_path = os.path.join(output_dir, "summary.txt")
-    with open(summary_save_path, "w") as f:
-        f.write(summary)
-        logging.info(f"summary saved to {summary_save_path}")
-
-    # save
-    md_writer.write("# " + "=" * 8 + "  Paper Summary  " + "=" * 8 + line_breaker)
-    md_writer.write(summary + line_breaker)
-    md_writer.write("-" * 8 + line_breaker)
-    md_writer.flush()
-
-
-step_func = {
-    "summary": summary_content,
-    "translate": translate_content,
-    "original": save_parsed_content,
-}
-
-
-@time_it
-def process(
-    file_path: str,
-    output_dir: str,
-    magic_config_path: str,
-    sys_image_folder: str,
-    final_md_file_save_dir: str,
-    steps: list[str] = ["summary", "translate"],
-) -> None:
-    """
-    Process pdf file
-
-    Args:
-    - file_path: path to file.
-    - output_dir: output directory.
-    - magic_config_path: path to magic pdf parser config.
-    - sys_image_folder: image save folder.
-    - final_md_file_save_dir: folder for saving final md file.
-    """
-    logging.info(f"processing started, required steps: {steps}")
-
-    os.makedirs(output_dir, exist_ok=True)
-    name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
-    logging.info(f"file name without out suffix: {name_without_suff}")
-
-    # parse pdf
-    content_list = parse_pdf(
-        file_path=file_path, asset_dir=output_dir, magic_config_path=magic_config_path
-    )
-
-    # md writer
-    md_file_path = os.path.join(final_md_file_save_dir, f"{name_without_suff}.md")
-    md_writer = open(md_file_path, "w")
-
-    md_writer.write(f"paper: {name_without_suff}" + line_breaker)
-
-    # apply step functions
-    kwargs = {"sys_image_folder": sys_image_folder}
-    for step in steps:
-        logging.info(f"processing step: {step}")
-        step = step.strip()
-        if step not in step_func:
-            logging.info(f"step {step} not configured, ignore")
-            continue
-
-        func = step_func[step]
-        func(
-            md_writer=md_writer,
-            content_list=content_list,
-            **kwargs,
-        )
-
-    md_writer.close()
-    logging.info(f"parsed markdown saved to {md_file_path}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Example of argparse usage.")
-
-    parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument(
-        "--output_dir", help="path to assets folder", default="./tmp/parsed_asset"
-    )
-    parser.add_argument(
-        "--ollama_host", help="ollama host", default="http://127.0.0.1:11434"
-    )
-    parser.add_argument(
-        "--ollama_model", help="ollama model name", default="qwen3:30b-a3b"
-    )
-    parser.add_argument(
-        "--magic_config_path", help="magic pdf config path", default="./magic-pdf.json"
-    )
-    parser.add_argument(
-        "--sys_image_folder", help="final image save folder", default="./md_images"
-    )
-    parser.add_argument(
-        "--final_md_file_save_dir", help="final md file save folder", default="."
-    )
-    parser.add_argument("--src_lang", help="source paper language", default="en")
-    parser.add_argument("--target_lang", help="translate target language", default="zh")
-    parser.add_argument(
-        "--steps", help="required steps", default="summary,translate,original"
-    )
-
-    init_root_logger()
-    args = parser.parse_args()
-
-    output_dir = os.path.realpath(args.output_dir)
-    logging.info(f"output dir: {output_dir}")
-
-    magic_config_path = os.path.realpath(args.magic_config_path)
-    logging.info(f"magic config path: {magic_config_path}")
-
-    sys_image_folder = os.path.realpath(args.sys_image_folder)
-    logging.info(f"system image save folder: {sys_image_folder}")
-
-    final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-    logging.info(f"final md save folder: {final_md_file_save_dir}")
-
-    ollama_host = args.ollama_host
-    ollama_model = args.ollama_model
-
-    src_lang = lang_mapping[args.src_lang]
-    logging.info(f"source language: {src_lang}")
-
-    target_lang = lang_mapping[args.target_lang]
-    logging.info(f"target language: {target_lang}")
-
-    logging.info(f"processing file: {os.path.basename(args.file_path)}")
-
-    process(
-        file_path=args.file_path,
-        output_dir=output_dir,
-        magic_config_path=magic_config_path,
-        sys_image_folder=sys_image_folder,
-        final_md_file_save_dir=final_md_file_save_dir,
-        steps=args.steps.split(","),
-    )
+                pass
+
+        return contents
+
+    def strip_text_content(self, texts: list[str]) -> str:
+        """
+        Filter and merge text content
+        """
+        content = ""
+        for text in texts:
+            striped = safe_strip(text)
+            if len(striped) == 0 or striped == "[]":
+                continue
+            content += striped
+            content += "\n\n"
+        return content.strip()
