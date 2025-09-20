@@ -1,36 +1,75 @@
-# paper_reading
-A pipeline for paper reading.
+# Paper Reading Pipeline
 
-The script first use `MinerU` to parse pdf paper, then call local ollama to summarize paper content and translate paper (into Chinese). Paper summary and content translation are saved to one markdown file.
+This repository contains a Python-based pipeline for processing PDF documents, specifically academic papers. It uses `MinerU` to parse the PDF, extracting text, images, and tables. It then uses a local Ollama instance to summarize and translate the content, saving the final result as a Markdown file.
 
+## Features
 
-# Usage 
-```shell
-python process.py \
-    --file_path="${file_path}" \
-    --output_dir="${output_dir}" \
-    --sys_image_folder="${sys_image_folder}" \
-    --final_md_file_save_dir="${final_md_file_save_dir}" \
-    --src_lang=$src_lang \
-    --target_lang=$target_lang \
-    --ollama_host=$ollama_host \
-    --ollama_model=$ollama_model \
-    --steps='summary,translate,original'
+- **PDF Parsing**: Leverages `MinerU` to accurately parse PDF layouts, including text, images, and tables.
+- **LLM Integration**: Connects to a local Ollama instance for content summarization and translation.
+- **Configurable**: Settings like model names, paths, and generation parameters are managed through a `config.yaml` file.
+- **Caching**: Caches intermediate results to speed up subsequent runs on the same file.
+- **Modular Steps**: Allows you to choose which processing steps to run (`summary`, `translate`, `original`).
+
+## Setup
+
+### 1. Install Dependencies
+```sh
+uv pip install -r requirements.txt
 ```
 
-command line flag explaination:
-- `file_path`: path to the pdf file
-- `output_dir`: folder to save intermediate asseets, i.e, pictures, model outputs.
-- `sys_image_folder`: folder for permanently  saving parsed pictures.
-- `final_md_file_save_dir`: where to save final markdown file.
-- `src_lang`: source language of original paper.
-- `target_lang`: languaged used to summary and translate original paper.
-- `ollama_host`: local ollama host, default to `http://127.0.0.1:11434`
-- `ollama_model`: local ollama model name, default to `qwen3:30b-a3b`.
-- `steps`: comma splitted processing step. 
-    - `summary`: get summary of file. 
-    - `translate`: translate parsed content. 
-    - `original`: save original parsed content.
+### 2. Configure Ollama
+Ensure you have Ollama running and have downloaded the required models specified in your configuration.
 
+### 3. Create Configuration File
+Create a `config.yaml` file in the root of the project. You can use the provided `config.yaml` as a template. Update the paths to match your system.
 
+```yaml
+ollama_host: http://127.0.0.1:11434
+chat_model_name: qwen3:30b-a3b-thinking-2507-q4_K_M
+vision_model_name: qwen2.5vl:7b
+max_context_token_num: 16000
+cache_data_dir: /path/to/your/cache
 
+parser_config_file_path: /path/to/your/paper_reading/magic-pdf.json
+asset_save_dir: /path/to/your/attachments
+
+gen_conf:
+    temperature: 0.7
+    top_p: 0.4
+    repeat_penalty: 1.2
+    num_ctx: 30000
+```
+
+## Usage
+
+You can run the processing pipeline using the `main.py` script. The `run.sh` script provides a convenient way to execute it.
+
+### Example from `run.sh`
+```sh
+#!/usr/bin/env bash
+set -e
+cd $(dirname "$0")
+
+file_path='/path/to/your/paper.pdf'
+temp_content_dir="./tmp/parsed_assets"
+final_md_file_save_dir="/path/to/your/output_markdowns"
+
+python main.py \
+    --file_path="${file_path}" \
+    --temp_content_dir="${temp_content_dir}" \
+    --final_md_file_save_dir="${final_md_file_save_dir}"
+```
+
+### Command-Line Arguments
+
+The `main.py` script accepts the following arguments:
+
+- `--file_path`: Path to the input PDF file.
+- `--temp_content_dir`: Directory for temporary files created during parsing.
+- `--final_md_file_save_dir`: Directory where the final Markdown file will be saved.
+- `--src_lang`: Source language of the paper (default: `en`).
+- `--target_lang`: Target language for translation (default: `zh`).
+- `--steps`: Comma-separated list of processing steps to perform. Default is `summary,original,translate`.
+  - `summary`: Generate a summary of the paper.
+  - `original`: Include the original parsed content.
+  - `translate`: Translate the content.
