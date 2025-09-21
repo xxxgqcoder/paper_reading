@@ -19,3 +19,7 @@
 **/temp/**
 
 .DS_Store
+
+**/.ruff_cache/**
+
+**/.venv/**
