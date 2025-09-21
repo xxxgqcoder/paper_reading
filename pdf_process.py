@@ -697,7 +697,7 @@ class PDFParser:
                 ]
                 extra_description = self.strip_text_content(texts)
                 if len(extra_description) == 0:
-                    extra_description = "no caption for this image"
+                    extra_description = ""
 
                 # NOTE: hard coded image path format
                 abs_img_path = os.path.join(
@@ -728,10 +728,10 @@ class PDFParser:
                 ]
                 extra_description = self.strip_text_content(texts)
                 if len(extra_description) == 0:
-                    extra_description = "no caption for this table"
+                    extra_description = ""
 
-                table_body = content.get("table_body", "")
                 # NOTE: ignore table body
+                # table_body = content.get("table_body", "")
                 # extra_description += "\n\n\n\nTable content:\n" + table_body
 
                 abs_img_path = os.path.join(
@@ -781,13 +781,12 @@ line_breaker = "\n\n"
 
 lang_mapping = {"en": "英语", "zh": "中文"}
 PROMPT_TRANSLATE = """
-你是一个论文翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
+你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
 
 下面是需要翻译的内容：
 
 {content}
-
-上面是需要翻译的内容
+----
 
 注意：
 - 如果要翻译的内容为引用文献、算法伪代码、代码、人名，则不需要翻译，直接返回原文
@@ -797,20 +796,20 @@ PROMPT_TRANSLATE = """
 """
 
 PROMPT_SUMMARY = """
-你是一个论文阅读助手，阅读下面的{src_lang}论文内容，并完成指令。
+你是一个阅读助手，阅读下面的{src_lang}内容，并完成指令。
 
-下面是论文内容
-
+下面是文档内容
 
 {content}
+----
 
-
-上面是论文内容
-
-指令：使用{target_lang}语言，总结{src_lang}论文内容，总结的内容需要包括论文主要创新点。
+指令：使用{target_lang}语言，总结{src_lang}内容。
+- 如果是学术论文，请总结论文的主要贡献、方法、实验和结论。
+- 如果是技术文档，请总结技术的核心概念、功能和应用场景。
+- 如果是一般性文档（书籍，文章等），请总结文档的主要内容和关键点。
 
 注意：
-- 忽略论文引用文献部分内容，只总结论文正文部分。
+- 忽略引用部分内容，只总结文档正文部分。
 - 你只需要输出最终总结结果，不要输出逐步思考过程。
 
 现在开始逐步思考
@@ -912,7 +911,7 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
                     + line_breaker
                 )
 
-            lines += content.extra_description + line_breaker
+            lines += f"{line_breaker}{content.extra_description}{line_breaker}"
         else:
             pass
         lines = post_text_process(lines)
