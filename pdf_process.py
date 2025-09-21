@@ -16,7 +16,9 @@ from io import TextIOWrapper
 from logging.handlers import RotatingFileHandler
 from typing import Any, Callable, TypeVar
 
+import tiktoken
 import xxhash
+from diskcache import Cache
 from ollama import Client as OllamaClient
 from pydantic import BaseModel, Field
 from pydantic_settings import (
@@ -105,12 +107,18 @@ class Content(BaseModel):
     file_path: str = Field("", description="original file path")
     content: str = Field(
         "",
-        description="the content, represented in string. If content type is not image / table, this field will be base64 encoded image content.",
+        description=(
+            "the content, represented in string. If content type is not image / table, "
+            "this field will be base64 encoded image content."
+        ),
     )
     extra_description: str = Field("", description="content extra description")
     content_url: str = Field(
         "",
-        description="url to the content, set when content is not suitable for directly insert into db, for example image / audio data",
+        description=(
+            "url to the content, set when content is not suitable for directly insert into db, "
+            "for example image / audio data"
+        ),
     )
 
 
@@ -123,7 +131,9 @@ _loggers = {}
 
 def get_logger(
     log_module_name: str = "",
-    log_format: str = "%(asctime)-15s %(levelname)-4s %(filename)s:%(lineno)d: %(message)s",
+    log_format: str = (
+        "%(asctime)-15s %(levelname)-4s %(filename)s:%(lineno)d: %(message)s"
+    ),
     need_stream: bool = True,
 ):
     """
@@ -196,9 +206,7 @@ def time_it(prefix: str = "") -> Callable[[Callable[..., Any]], Callable[..., An
 
 def estimate_token_num(text: str) -> tuple[int, list[str]]:
     """
-    Estimate tokens in text. Combine consecutive ascii character as one token,
-    treat each non-ascii character as one token. Each ascii token accounts for 2.3
-    token, each non-ascii token accounts for 1.2 token.
+    Estimate tokens in text using tiktoken.
 
     Args:
     - text: the string to parse.
@@ -210,45 +218,14 @@ def estimate_token_num(text: str) -> tuple[int, list[str]]:
     if text is None or len(text.strip()) == 0:
         return 0, []
 
-    text = text.strip()
+    encoding = tiktoken.get_encoding("cl100k_base")
+    tokens = encoding.encode(text)
+    token_strings = [
+        encoding.decode_single_token_bytes(token).decode("utf-8", "replace")
+        for token in tokens
+    ]
 
-    def is_space(ch: str) -> bool:
-        if ord(ch) >= 128:
-            return False
-        if ch.strip() == "":
-            return True
-        return False
-
-    def token_bound_found(text: str, i: int, j: int) -> bool:
-        if ord(text[i]) < 127:
-            # space met or non-ascii character met
-            return is_space(text[j]) or ord(text[j]) > 127
-        else:
-            # count one non-ascii character as one token
-            return j > i
-
-    token_buffer = []
-    i = 0
-    while i < len(text):
-        j = i + 1
-        while j < len(text) and not token_bound_found(text, i, j):
-            j += 1
-
-        token = text[i:j]
-        token_buffer.append(token)
-
-        i = j
-        while i < len(text) and is_space(text[i]):
-            i += 1
-
-    token_num = 0
-    for token in token_buffer:
-        if ord(token[0]) < 128:
-            token_num += 2.3
-        else:
-            token_num += 1.2
-
-    return int(token_num), token_buffer
+    return len(tokens), token_strings
 
 
 def hash64(content: bytes) -> str:
@@ -322,49 +299,38 @@ T = TypeVar("T")
 
 
 def cache_it(
-    key_generator: Callable[..., str], ttl_seconds=60 * 60 * 24 * 30
+    key_generator: Callable[..., str], ttl_seconds=60 * 60 * 24 * 100
 ) -> Callable[..., Callable[..., T]]:
     """
-    Redis cache decorator with customized key generator.
+    File-based cache decorator using diskcache.
+
+    This decorator saves the results of a function call to a disk-based cache.
+    On subsequent calls with the same arguments, it returns the cached result
+    if it hasn't expired.
 
     Args:
-    - key_generator: Function that takes the same args as decorated function and returns cache key
-    - ttl_seconds: Time to live for the cache key in seconds (default: 30 day)
+    - key_generator: A function that takes the same arguments as the decorated
+      function and returns a unique cache key string.
+    - ttl_seconds: Time to live for the cache key in seconds (default: 100 days).
     """
+    cache = Cache(Config.cache_data_dir)
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> T:
-            cached_files = os.listdir(Config.cache_data_dir)
-            for f in cached_files:
-                if not f.endswith(".pickle"):
-                    continue
-                full_path = os.path.join(Config.cache_data_dir, f)
-                mod_time = os.path.getmtime(full_path)
-                if mod_time + ttl_seconds > time.time():
-                    continue
-                try:
-                    os.remove(full_path)
-                    Logger.info(f"Removed expired cache file: {full_path}")
-                except Exception as e:
-                    Logger.error(f"Remove expired cache file exception: {e}")
-
             cache_key = key_generator(*args, **kwargs)
-            cache_path = os.path.join(Config.cache_data_dir, f"{cache_key}.pickle")
-            try:
-                with open(cache_path, "rb") as f:
-                    return pickle.load(f)
-            except Exception as e:
-                Logger.error(f"Load cache exception: {e}")
 
+            # Check if the result is in the cache
+            if cache_key in cache:
+                Logger.info(f"Loaded cache from {cache_key}")
+                cached_result = cache[cache_key]
+                return cached_result  # type: ignore
+
+            # If not, call the function and store the result
             result = func(*args, **kwargs)
-            try:
-                if result:
-                    with open(cache_path, "wb") as f:
-                        pickle.dump(result, f)
-                        Logger.info(f"Saved cache to {cache_path}")
-            except Exception as e:
-                Logger.error(f"Save cache exception: {e}")
+            if result:
+                cache.set(cache_key, result, expire=ttl_seconds)
+                Logger.info(f"Saved cache to {cache_key}")
 
             return result
 

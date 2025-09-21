@@ -1,5 +1,14 @@
-mineru
-ollama
-jupyterlab
+PyYAML
 StrEnum
+diskcache
+jupyterlab
+mineru[core]
+ollama
+pypdf
+tiktoken
 xxhash
+torch
+doclayout_yolo
+ultralytics
+transformers
+ftfy
