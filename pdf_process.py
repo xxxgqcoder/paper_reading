@@ -280,8 +280,8 @@ def relative_md_image_path(sys_image_folder: str, img_name: str) -> str:
     )
 
 
-def post_text_process(text: str) -> str:
-    # strip space around $
+def process_equation_mark(text: str) -> str:
+    # strip space around single `$`
     p = r" *(\$) *"
     text = re.sub(p, r"\1", text)
 
@@ -679,6 +679,7 @@ class PDFParser:
                 text = self.strip_text_content([content["text"]])
                 if content.get("text_level", 0) == 1:
                     text = "# " + text  # headline level 1
+                text = process_equation_mark(text)
                 contents.append(
                     Content(
                         content_type=ContentType.TEXT,
@@ -696,6 +697,7 @@ class PDFParser:
                     _format_caption(content.get("img_footnote", "")),
                 ]
                 extra_description = self.strip_text_content(texts)
+                extra_description = process_equation_mark(extra_description)
                 if len(extra_description) == 0:
                     extra_description = ""
 
@@ -910,7 +912,6 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"
         else:
             pass
-        lines = post_text_process(lines)
         md_writer.write(lines)
         md_writer.flush()
 
@@ -968,7 +969,6 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> 
 
             # translate description
             translated = translate_text_content(content_list[i].extra_description)
-            translated = post_text_process(translated)
             Logger.info(f"Translated content:\n{translated}")
             md_writer.write(translated + line_breaker)
 
@@ -990,7 +990,6 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> 
         content = ensure_utf(content)
         Logger.info(f"Content to translate:\n{content}")
         translated = translate_text_content(content)
-        translated = post_text_process(translated)
         Logger.info(f"Tranlated content:\n{translated}")
         md_writer.write(translated + line_breaker)
 
@@ -1037,7 +1036,7 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
     summary = llm_chat(prompt=formatted_promt, gen_conf=Config.gen_conf.model_dump())
     if not summary:
         summary = "[LLM error]"
-    summary = post_text_process(summary)
+    summary = process_equation_mark(summary)
     Logger.info(f"Content summary:\n{summary}")
 
     # save
