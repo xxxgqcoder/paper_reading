@@ -894,22 +894,18 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
                     sys_image_folder=os.path.dirname(content.content_url),
                     img_name=img_name,
                 )
-                # image description
-                img_content = load_base64_image(content.content_url)
-                img_description = image_chat(
-                    prompt="summarize what you see in the picture",
-                    image_content=img_content,
-                    gen_conf=Config.gen_conf.model_dump(),
-                )
-                if not img_description:
-                    img_description = "[LLM error]"
-
-                lines += (
-                    md_img_path
-                    + line_breaker
-                    + f"```text{line_breaker}{img_description}{line_breaker}```"
-                    + line_breaker
-                )
+                # NOTE: no image description
+                # # image description
+                # img_content = load_base64_image(content.content_url)
+                # img_description = image_chat(
+                #     prompt="summarize what you see in the picture",
+                #     image_content=img_content,
+                #     gen_conf=Config.gen_conf.model_dump(),
+                # )
+                # if not img_description:
+                #     img_description = "[LLM error]"
+                
+                lines += md_img_path + line_breaker
 
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"
         else:
