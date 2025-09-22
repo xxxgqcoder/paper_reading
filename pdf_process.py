@@ -1040,7 +1040,7 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
     Logger.info(f"Content summary:\n{summary}")
 
     # save
-    md_writer.write("# " + "=" * 4 + "  Paper Summary  " + "=" * 4 + line_breaker)
+    md_writer.write("# " + "=" * 4 + "  Content Summary  " + "=" * 4 + line_breaker)
     md_writer.write(summary + line_breaker)
     md_writer.write("-" * 4 + line_breaker)
     md_writer.flush()
