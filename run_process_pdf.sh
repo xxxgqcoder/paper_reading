@@ -9,7 +9,7 @@ temp_content_dir="./tmp/parsed_assets"
 final_md_file_save_dir="/Users/xcoder/obsidian/Profession/Processed PDF"
 
 
-python pdf_process.py \
+python process_pdf.py \
     --file_path="${file_path}" \
     --temp_content_dir="${temp_content_dir}" \
     --final_md_file_save_dir="${final_md_file_save_dir}"
