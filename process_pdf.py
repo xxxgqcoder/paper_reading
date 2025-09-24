@@ -990,6 +990,7 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> 
         content = ensure_utf(content)
         Logger.info(f"Content to translate:\n{content}")
         translated = translate_text_content(content)
+        translated = process_equation_mark(translated)
         Logger.info(f"Tranlated content:\n{translated}")
         md_writer.write(translated + line_breaker)
 
