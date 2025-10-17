@@ -6,7 +6,8 @@ import subprocess
 
 def main():
     pdf_folder = "/Users/xcoder/aDrive/books/software engineering"
-    output_folder = "/Users/xcoder/obsidian/Profession/Design Mode"
+    output_folder = "/Users/xcoder/obsidian/Profession/Clean Code"
+    pdf_file_pattern = f"{pdf_folder}/代码整洁之道-*pdf"
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -16,7 +17,7 @@ def main():
     processed_basenames = {f.rsplit(".", 1)[0] for f in processed_files if "." in f}
 
     # 2. Extract base file from file names from pdf folder without suffix.
-    all_pdf_files = glob.glob(f"{pdf_folder}/设计模式：可复用面向对象软件的基础-*pdf")
+    all_pdf_files = glob.glob(pdf_file_pattern)
 
     # 3. Filter files that are not found in the processed list.
     files_to_process = []
