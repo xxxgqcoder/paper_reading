@@ -6,7 +6,6 @@ from mineru.utils.enum_class import ModelPath
 from modelscope import snapshot_download as ms_snapshot_download
 
 
-
 def download_mineru_model(project_dir: str):
     """
     Download mineru model and set up config file.

@@ -11,10 +11,11 @@ import re
 import shutil
 import tempfile
 import time
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from io import TextIOWrapper
 from logging.handlers import RotatingFileHandler
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 import tiktoken
 import xxhash
@@ -906,7 +907,7 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
                 # )
                 # if not img_description:
                 #     img_description = "[LLM error]"
-                
+
                 lines += md_img_path + line_breaker
 
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"

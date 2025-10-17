@@ -1,7 +1,7 @@
 #!/usr/bin/env python
+import glob
 import os
 import subprocess
-import glob
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
 
     # 1. Get all file names from output dir, rm suffix.
     processed_files = os.listdir(output_folder)
-    processed_basenames = {f.rsplit('.', 1)[0] for f in processed_files if '.' in f}
+    processed_basenames = {f.rsplit(".", 1)[0] for f in processed_files if "." in f}
 
     # 2. Extract base file from file names from pdf folder without suffix.
     all_pdf_files = glob.glob(f"{pdf_folder}/设计模式：可复用面向对象软件的基础-*pdf")
@@ -22,15 +22,14 @@ def main():
     files_to_process = []
     for pdf_path in all_pdf_files:
         pdf_filename = os.path.basename(pdf_path)
-        if '.' in pdf_filename:
-            pdf_basename = pdf_filename.rsplit('.', 1)[0]
+        if "." in pdf_filename:
+            pdf_basename = pdf_filename.rsplit(".", 1)[0]
             if pdf_basename not in processed_basenames:
                 files_to_process.append(pdf_path)
         else:
             # If there's no dot, it can't have a suffix to remove, but might need processing
             if pdf_filename not in processed_basenames:
                 files_to_process.append(pdf_path)
-
 
     if not files_to_process:
         print("No new PDF files to process.")
