@@ -32,6 +32,6 @@
     "mineru_tools_conf_json": "/Users/xcoder/projects/paper_reading/magic-pdf.json",
     "mineru_model_source": "local",
     "models-dir": {
-        "pipeline": "/Users/xcoder/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/280f8a5a8912a91a417ba117c9ff8759cacbf6c0"
+        "pipeline": "/Users/xcoder/.cache/huggingface/hub/models--opendatalab--PDF-Extract-Kit-1.0/snapshots/e6bca963f0212cfc08b742770e08a5dec8317d9d"
     }
 }

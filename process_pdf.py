@@ -40,18 +40,22 @@ def get_project_base_directory() -> str:
 
 
 class GenerationConf(BaseSettings):
-    temperature: float = Field(0.7, description="Temperature for text generation.")
-    top_p: float = Field(0.3, description=" Top-p (nucleus) sampling parameter.")
+    temperature: float = Field(
+        default=0.7, description="Temperature for text generation."
+    )
+    top_p: float = Field(
+        default=0.3, description=" Top-p (nucleus) sampling parameter."
+    )
     repeat_penalty: float = Field(
-        1.1, description=" Repetition penalty for text generation."
+        default=1.1, description=" Repetition penalty for text generation."
     )
     num_ctx: int = Field(
-        1024 * 16, description=" Maximum context length for the model."
+        default=1024 * 16, description=" Maximum context length for the model."
     )
 
 
 class _Config(BaseSettings):
-    """Centralized configuration class for the entire Tiny RAG project."""
+    """Application configuration settings."""
 
     parser_config_file_path: str = Field("", description="path to parser config file")
     asset_save_dir: str = Field(
@@ -104,10 +108,12 @@ class Content(BaseModel):
     Document content object.
     """
 
-    content_type: ContentType = Field(ContentType.TEXT, description="content type")
-    file_path: str = Field("", description="original file path")
+    content_type: ContentType = Field(
+        default=ContentType.TEXT, description="content type"
+    )
+    file_path: str = Field(default="", description="original file path")
     content: str = Field(
-        "",
+        default="",
         description=(
             "the content, represented in string. If content type is not image / table, "
             "this field will be base64 encoded image content."
@@ -115,10 +121,10 @@ class Content(BaseModel):
     )
     extra_description: str = Field("", description="content extra description")
     content_url: str = Field(
-        "",
+        default="",
         description=(
-            "url to the content, set when content is not suitable for directly insert into db, "
-            "for example image / audio data"
+            "url to the content, set when content is not suitable for directly insert "
+            "into db, for example image / audio data"
         ),
     )
 
@@ -782,7 +788,7 @@ class PDFParser:
 # step functions
 line_breaker = "\n\n"
 
-lang_mapping = {"en": "英语", "zh": "中文"}
+
 PROMPT_TRANSLATE = """
 你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
 
@@ -1063,12 +1069,12 @@ def process(
     steps: list[str],
 ) -> None:
     """
-    Process pdf file
+    Process a pdf file and save parsed markdown file.
 
     Args:
-    - file_path: path to file.
-    - temp_content_dir: temorary output directory.
-    - magic_config_path: path to magic pdf parser config.
+    - file_path: absolute path to pdf file.
+    - temp_content_dir: folder for saving temp parsed content.
+    - magic_config_path: path to magic pdf config file.
     - final_md_file_save_dir: folder for saving final md file.
     """
     Logger.info(f"Processing started, required steps: {steps}")
@@ -1099,22 +1105,21 @@ def process(
     Logger.info(f"Parsed markdown saved to {md_file_path}")
 
 
+lang_mapping = {"en": "英语", "zh": "中文"}
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Example of argparse usage.")
 
     parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument(
-        "--temp_content_dir",
-        help="path to temp content folder",
-        default="./tmp/parsed_asset",
-    )
-    parser.add_argument(
-        "--final_md_file_save_dir", help="final md file save folder", default="."
-    )
+    parser.add_argument("--final_md_file_save_dir", help="final md file save folder")
     parser.add_argument("--src_lang", help="source paper language", default="en")
     parser.add_argument("--target_lang", help="translate target language", default="zh")
     parser.add_argument(
         "--steps", help="required steps", default="summary,original,translate"
+    )
+    parser.add_argument(
+        "--temp_content_dir",
+        help="path to temp content folder",
+        default="./tmp/parsed_asset",
     )
 
     args = parser.parse_args()
