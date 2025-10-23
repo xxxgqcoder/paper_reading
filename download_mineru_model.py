@@ -8,22 +8,27 @@ from modelscope import snapshot_download as ms_snapshot_download
 
 def download_mineru_model(project_dir: str):
     """
-    Download mineru model and set up config file.
+    Download MinerU model weights and modify the config file.
 
     Args:
-    - project_dir: project root directory.
+    - project_dir: The root directory of the MinerU project.
     """
 
     def download_mineru_model_weight(
         relative_path: str, repo_mode: str = "pipeline"
     ) -> str:
         """
-        Download MinerU model weight.
+        Download MinerU model weights from the specified repository.
+
+        Args:
+        - relative_path: The relative path of the model within the repository.
+        - repo_mode: The repository mode, either 'pipeline' or 'vlm'.
 
         Returns:
-        - downloaded model weight path.
+        - The local cache directory where the model weights are stored.
         """
         model_source = os.getenv("MINERU_MODEL_SOURCE", "huggingface")
+        print(f"downloading model from source: {model_source}, repo_mode: {repo_mode}")
 
         repo_mapping = {
             "pipeline": {
@@ -97,9 +102,7 @@ def download_mineru_model(project_dir: str):
     print(f"donwloaded model path: {downloaded_model_dir}")
 
     # modify json config file
-    config_file_name = "magic-pdf.json"
-    config_file_path = os.path.join(project_dir, "assets/MinerU", config_file_name)
-    json_modification = {}
+    config_file_path = os.path.join(project_dir, "magic-pdf.json")
     data = {
         "bucket_info": {
             "bucket-name-1": ["ak", "sk", "endpoint"],
@@ -124,23 +127,13 @@ def download_mineru_model(project_dir: str):
         },
     }
 
-    for key, value in json_modification.items():
-        if key in data:
-            if isinstance(data[key], dict):
-                data[key].update(
-                    value,
-                )
-            else:
-                data[key] = value
-
     with open(config_file_path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
         print(f"save modified config file to path: {config_file_path}")
 
 
 if __name__ == "__main__":
-    file_dir = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
-    project_dir = os.path.realpath(file_dir + "/..")
+    project_dir = os.path.abspath(os.path.dirname(os.path.realpath(__file__)))
     print(f"project directory: {project_dir}")
 
     download_mineru_model(project_dir)
