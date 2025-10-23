@@ -5,9 +5,10 @@ import subprocess
 
 
 def main():
-    pdf_folder = "/Users/xcoder/aDrive/books/software engineering"
-    output_folder = "/Users/xcoder/obsidian/Profession/Clean Code"
-    pdf_file_pattern = f"{pdf_folder}/代码整洁之道-*pdf"
+    pdf_folder = "/Users/xcoder/obsidian/PDF"
+    output_folder = "/Users/xcoder/obsidian/Profession/Desgin Patterns"
+    pdf_file_pattern = f"{pdf_folder}/design patterns-*pdf"
+    steps = "summary,original"
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -49,7 +50,7 @@ def main():
             pdf_path,
             "--final_md_file_save_dir",
             output_folder,
-            "--steps=original",
+            f"--steps={steps}",
         ]
 
         try:
