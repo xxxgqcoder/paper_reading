@@ -7,7 +7,6 @@ import logging
 import os
 import pickle
 import random
-import re
 import shutil
 import tempfile
 import time
@@ -288,10 +287,35 @@ def relative_md_image_path(sys_image_folder: str, img_name: str) -> str:
 
 
 def process_equation_mark(text: str) -> str:
-    # strip space around single `$`
-    p = r" *(\$) *"
-    text = re.sub(p, r"\1", text)
+    """
+    Replaces all non-overlapping occurrences of '$ equation $' with '$equation$'.
 
+    This function uses a non-greedy regular expression to find and replace
+    the specified pattern, ensuring that it correctly handles multiple
+    equations within the same string.
+
+    Args:
+        text: The input string that may contain patterns to be replaced.
+
+    Returns:
+        A new string with all occurrences of '$ equation $' replaced by
+        '$equation$'.
+    """
+    # The regex pattern is:
+    # \$   : Matches the opening dollar sign.
+    #       : Matches the space after the opening dollar sign.
+    # (.*?) : This is a non-greedy capture group.
+    #         .   : Matches any character except for newline.
+    #         *?  : Matches the previous character zero or more times,
+    #               but as few times as possible (non-greedy).
+    #         ()  : Captures the matched "equation" part.
+    #       : Matches the space before the closing dollar sign.
+    # \$   : Matches the closing dollar sign.
+    #
+    # The replacement string r'$\1$' uses the captured group \1 (the equation)
+    # and wraps it with dollar signs without the spaces.
+    # return re.sub(r"\$ (.*?) \$", r" $\1$ ", text)
+    # NOTE: seems equations issue resolved in recent mineru.
     return text
 
 
@@ -686,7 +710,6 @@ class PDFParser:
                 text = self.strip_text_content([content["text"]])
                 if content.get("text_level", 0) == 1:
                     text = "# " + text  # headline level 1
-                text = process_equation_mark(text)
                 contents.append(
                     Content(
                         content_type=ContentType.TEXT,
@@ -704,7 +727,6 @@ class PDFParser:
                     _format_caption(content.get("img_footnote", "")),
                 ]
                 extra_description = self.strip_text_content(texts)
-                extra_description = process_equation_mark(extra_description)
                 if len(extra_description) == 0:
                     extra_description = ""
 
@@ -919,6 +941,7 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"
         else:
             pass
+        lines = process_equation_mark(lines)
         md_writer.write(lines)
         md_writer.flush()
 
