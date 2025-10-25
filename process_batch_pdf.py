@@ -6,9 +6,11 @@ import subprocess
 
 def main():
     pdf_folder = "/Users/xcoder/obsidian/PDF"
-    output_folder = "/Users/xcoder/obsidian/Profession/Desgin Patterns"
-    pdf_file_pattern = f"{pdf_folder}/design patterns-*pdf"
-    steps = "summary,original"
+    output_folder = "/Users/xcoder/obsidian/Profession/Probabilistic Machine Learning"
+    pdf_file_pattern = (
+        f"{pdf_folder}/Probabilistic Machine Learning - An Introduction-*pdf"
+    )
+    steps = "original"
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -39,7 +41,7 @@ def main():
 
     # 4. Run rest of logic based on filtered file names.
     print(f"Found {len(files_to_process)} new PDF files to process.")
-
+    files_to_process = sorted(files_to_process)
     for pdf_path in files_to_process:
         print(f"Processing {pdf_path}")
 
