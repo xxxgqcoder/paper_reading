@@ -1137,7 +1137,7 @@ if __name__ == "__main__":
     parser.add_argument("--src_lang", help="source paper language", default="en")
     parser.add_argument("--target_lang", help="translate target language", default="zh")
     parser.add_argument(
-        "--steps", help="required steps", default="summary,original,translate"
+        "--steps", help="required steps", default="summary,original"
     )
     parser.add_argument(
         "--temp_content_dir",
