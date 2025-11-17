@@ -1,3 +1,7 @@
+<<<<<<< HEAD
 input_pdf: /Users/xcoder/workplace/驾考/驾考教材.pdf
+=======
+input_pdf: ~/aDrive/books/computer mathematics/Probability and Random Processes.pdf
+>>>>>>> b8b49c2 (expand home folder)
 pages:
   - 1-93
