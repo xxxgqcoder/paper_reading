@@ -525,7 +525,11 @@ class PDFParser:
                 return [expand_value(item) for item in value]
             return value
 
+<<<<<<< HEAD
         expanded_config: dict[str, Any] = expand_value(config)
+=======
+        expanded_config = expand_value(config)
+>>>>>>> a8ce415 (expand path and save back)
         
         # Write the expanded config back to the file so MinerU can read it
         try:
