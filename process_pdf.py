@@ -20,7 +20,7 @@ import tiktoken
 import xxhash
 from diskcache import Cache
 from ollama import Client as OllamaClient
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -61,7 +61,7 @@ class _Config(BaseSettings):
         "",
         description="directory to save parsed asset files, including images and tables",
     )
-    cache_data_dir: str = Field(default="./tmp", description="cache data directory")
+    cache_data_dir: str = Field(default="~/.cache/llm_cache", description="cache data directory")
     max_context_token_num: int = Field(
         default=1024 * 16, description="max context token num"
     )
@@ -76,6 +76,16 @@ class _Config(BaseSettings):
         env_nested_delimiter="@@",
         nested_model_default_partial_update=True,
     )
+
+    @field_validator(
+        "cache_data_dir", "parser_config_file_path", "asset_save_dir", mode="after"
+    )
+    @classmethod
+    def expand_home_path(cls, v: str) -> str:
+        """Expand ~ to absolute home directory path."""
+        if v:
+            return os.path.abspath(os.path.expanduser(v))
+        return v
 
     @classmethod
     def settings_customise_sources(
@@ -484,11 +494,47 @@ class PDFParser:
         with open(file=Config.parser_config_file_path) as f:  # type: ignore
             conf = json.load(f)
 
+        # Expand home directory paths in configuration
+        conf = self._expand_paths_in_config(conf)
+
         Logger.info(f"Parsr config: {json.dumps(conf, indent=4)}")
 
         # set environment variable for magic_pdf to load config json file
         os.environ["MINERU_TOOLS_CONFIG_JSON"] = Config.parser_config_file_path
         os.environ["MINERU_MODEL_SOURCE"] = conf.get("mineru_model_source", "local")
+
+    def _expand_paths_in_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """
+        Recursively expand ~ in all path strings in the configuration.
+        After expansion, write the updated config back to the file to ensure
+        MinerU library can read the expanded paths.
+
+        Args:
+            config: Configuration dictionary
+
+        Returns:
+            Configuration with expanded paths
+        """
+        def expand_value(value):
+            if isinstance(value, str) and value.startswith("~"):
+                return os.path.abspath(os.path.expanduser(value))
+            elif isinstance(value, dict):
+                return {k: expand_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [expand_value(item) for item in value]
+            return value
+
+        expanded_config = expand_value(config)
+        
+        # Write the expanded config back to the file so MinerU can read it
+        try:
+            with open(Config.parser_config_file_path, 'w', encoding='utf-8') as f:
+                json.dump(expanded_config, f, ensure_ascii=False, indent=4)
+            Logger.info(f"Updated config file with expanded paths: {Config.parser_config_file_path}")
+        except Exception as e:
+            Logger.warning(f"Failed to write expanded config back to file: {e}")
+        
+        return expanded_config
 
     def key_generator(self, file_path) -> str:
         file_bytes = b""
