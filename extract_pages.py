@@ -58,6 +58,8 @@ if __name__ == "__main__":
         config = yaml.safe_load(f)
 
     input_pdf = config["input_pdf"]
+    # Expand ~ to absolute home directory path
+    input_pdf = os.path.abspath(os.path.expanduser(input_pdf))
     pages_to_extract_list = config["pages"]
 
     base, ext = os.path.splitext(input_pdf)
