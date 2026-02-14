@@ -1,19 +1,28 @@
-# Agent Instructions
+# Agent 指引
 
-This file provides instructions for AI agents working in this repository.
+本文件为在此仓库中工作的 AI Agent 提供指引。
 
-## Build, Lint, and Test
+## 通用
+- 代码注释需要为中文
+- log/print输出的日志需要为英文。
 
-- **Build:** No explicit build step. This is a Python script-based project.
-- **Lint:** Run `ruff check .` to lint the codebase.
-- **Format:** Run `black .` or `ruff format .` to format the code.
-- **Test:** Run `pytest` to run all tests. To run a single test file, use `pytest <path_to_test_file>`.
+## 构建、检查与测试
 
-## Code Style
+- **构建：** 无需显式构建步骤。本项目基于 Python 脚本。
+- **代码检查：** 运行 `ruff check .` 进行代码检查。
+- **格式化：** 运行 `black .` 或 `ruff format .` 格式化代码。
+- **测试：** 运行 `pytest` 执行所有测试。运行单个测试文件使用 `pytest <测试文件路径>`。
 
-- **Formatting:** Follow `black` formatting with a line length of 120 characters.
-- **Imports:** Imports are sorted using `isort` conventions (via `ruff`).
-- **Types:** Type hints are encouraged but not enforced by a static type checker.
-- **Naming:** Use `snake_case` for variables and functions, and `PascalCase` for classes.
-- **Error Handling:** Handle exceptions explicitly. Avoid broad `except:` clauses.
-- **Dependencies:** Manage dependencies in `requirements.txt`.
+## 代码风格
+
+- **格式化：** 遵循 `black` 格式化规范，行长度为 120 个字符。
+- **导入排序：** 使用 `isort` 规范排序导入（通过 `ruff`）。
+- **类型注解：** 鼓励使用类型注解，但不强制通过静态类型检查。
+- **命名规范：** 变量和函数使用 `snake_case`，类使用 `PascalCase`。
+- **异常处理：** 显式处理异常，避免使用宽泛的 `except:` 子句。
+- **依赖管理：** 在 `requirements.txt` 中管理依赖。
+
+## git commit
+- commit log应该简洁，长度不超过50个字符。
+- commit log格式符合规范。
+- commit log使用中文。
