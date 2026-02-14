@@ -25,4 +25,4 @@
 ## git commit
 - commit log应该简洁，长度不超过50个字符。
 - commit log格式符合规范。
-- commit log使用中文。
+- commit log使用英文。
