@@ -1,9 +1,3 @@
-input_pdf: /Users/xcoder/aDrive/books/computer mathematics/Probability and Random Processes.pdf
+input_pdf: /Users/xcoder/workplace/驾考/驾考教材.pdf
 pages:
-  - 12-36
-  - 37-56
-  - 57-99
-  - 100-158
-  - 159-223
-  - 224-315
-  - 316-370
+  - 1-93

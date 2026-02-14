@@ -8,9 +8,13 @@ dependencies = [
     "PyYAML",
     "StrEnum",
     "diskcache",
+    "huggingface-hub",
     "jupyterlab",
     "mineru[core]",
+    "modelscope",
     "ollama",
+    "pydantic",
+    "pydantic-settings[yaml]",
     "pypdf",
     "tiktoken",
     "xxhash",
@@ -84,3 +88,16 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "diskcache",
+    "mineru.*",
+    "modelscope",
+]
+ignore_missing_imports = true

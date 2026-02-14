@@ -31,7 +31,7 @@ def parse_page_ranges(page_ranges_str: str) -> list[int]:
     """
     Parses a string of page ranges (e.g., "1,3,5-7") into a list of 0-based page indices.
     """
-    page_indices = []
+    page_indices: list[int] = []
     ranges = page_ranges_str.split(",")
     for r in ranges:
         if "-" in r:

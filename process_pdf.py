@@ -142,7 +142,7 @@ class Content(BaseModel):
 # util func
 
 
-_loggers = {}
+_loggers: dict[str, logging.Logger] = {}
 
 
 def get_logger(
@@ -439,7 +439,7 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
     if not resp:
         return None
 
-    ans = resp["message"]["content"].strip()
+    ans: str = resp["message"]["content"].strip()
     if "</think>" in ans:
         ans = ans.split("</think>")[-1]
 
@@ -476,7 +476,8 @@ def image_chat(
         Logger.error(f"Vision model chat exception: {e}")
         return None
 
-    return resp["message"]["content"]
+    ret: str = resp["message"]["content"]
+    return ret
 
 
 # ----------------------------------------------------------------------------
@@ -515,7 +516,7 @@ class PDFParser:
         Returns:
             Configuration with expanded paths
         """
-        def expand_value(value):
+        def expand_value(value: Any) -> Any:
             if isinstance(value, str) and value.startswith("~"):
                 return os.path.abspath(os.path.expanduser(value))
             elif isinstance(value, dict):
@@ -524,7 +525,7 @@ class PDFParser:
                 return [expand_value(item) for item in value]
             return value
 
-        expanded_config = expand_value(config)
+        expanded_config: dict[str, Any] = expand_value(config)
         
         # Write the expanded config back to the file so MinerU can read it
         try:
@@ -895,7 +896,7 @@ PROMPT_SUMMARY = """
 
 # ------------------------------------------------------------------------------
 # job executor
-job_executor = None
+job_executor: ProcessPoolExecutor | None = None
 
 
 def get_job_executor() -> ProcessPoolExecutor:
@@ -948,7 +949,7 @@ def parse_pdf(file_path: str, temp_content_dir: str) -> list[Content]:
     pickle_content_path = os.path.join(temp_content_dir, "content_list.pickle")
     Logger.info(f"Loading content list from {pickle_content_path}")
     with open(pickle_content_path, "rb") as f:
-        content_list = pickle.load(f)
+        content_list: list[Content] = pickle.load(f)
     Logger.info(f"Loaded {len(content_list)} content from {pickle_content_path}")
 
     return content_list
@@ -1123,7 +1124,7 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
     md_writer.flush()
 
 
-step_func = {
+step_func: dict[str, Callable[[TextIOWrapper, list[Content]], None]] = {
     "original": save_parsed_content,
     "summary": summary_content,
     "translate": translate_content,
@@ -1169,7 +1170,7 @@ def process(
                 Logger.info(f"Step {step} not configured, ignore")
                 continue
             func = step_func[step]
-            func(md_writer=md_writer, content_list=content_list)
+            func(md_writer, content_list)
 
     Logger.info(f"Parsed markdown saved to {md_file_path}")
 
