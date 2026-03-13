@@ -51,15 +51,27 @@ python download_mineru_model.py
 
 ### 2. 提取 PDF 页面
 
-`extract_pages.py` - 从 PDF 中提取指定页面。
+使用 `process_pdf.py` 的 `extract-pages` 子命令，从 PDF 中提取指定页面。
+
+先在 `config.yaml` 中配置 `extract_pages` 部分：
+
+```yaml
+extract_pages:
+    input_pdf: ~/path/to/input.pdf
+    pages:
+        - 1-93
+        - 100,105-110
+```
+
+然后运行：
 
 ```sh
-python extract_pages.py --config extract_pages.yaml
+python process_pdf.py extract-pages
 ```
 
 **功能：**
 - 从 PDF 中提取指定页面范围
-- 支持 YAML 配置文件定义提取规则
+- 在 `config.yaml` 的 `extract_pages` 部分配置输入文件和页面范围
 - 支持页码范围语法（如 `1,3,5-7` 表示第 1、3、5-7 页）
 
 ### 3. 单个 PDF 处理
@@ -130,6 +142,6 @@ gen_conf:
     num_ctx: 30000
 ```
 
-### PDF 页面提取配置：`extract_pages.yaml`
+### PDF 页面提取配置
 
-用于配置页面提取规则（参考项目中的 `extract_pages.yaml`）
+页面提取规则已整合到 `config.yaml` 的 `extract_pages` 部分，无需单独配置文件。

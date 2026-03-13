@@ -1,29 +1,33 @@
-"""process_pdf.py - PDF paper parsing, translation, and summarization tool.
+"""process_pdf.py - PDF tool: parsing/translation/summarization and page extraction.
 
-Usage:
+Commands:
+  process (default)   Parse PDF, optional summary/translate; output Markdown.
+  extract-pages       Extract page ranges from a PDF.
+
+Usage (process):
     python process_pdf.py --file_path <pdf> --final_md_file_save_dir <dir> [options]
 
-Required (CLI only):
+Usage (extract-pages):
+    python process_pdf.py extract-pages
+
+Required for process:
     --file_path                Path to the PDF file
     --final_md_file_save_dir   Output directory for the Markdown file
 
-Optional (CLI overrides for config.yaml):
-    --steps              Processing steps, comma-separated (valid: summary,translate,original)
-    --src_lang           Source language (en/zh)
-    --target_lang        Target language (en/zh)
-    --temp_content_dir   Temp content folder
+extract-pages reads config.yaml section:
+    extract_pages:
+        input_pdf: ~/path/to/input.pdf
+        pages:
+            - 1-93
 
-All other parameters (LLM endpoint, model names, prompts, generation config, etc.)
-are managed in config.yaml. See config.yaml for the full parameter list.
+Optional (CLI overrides for config.yaml when running process):
+    --steps, --src_lang, --target_lang, --temp_content_dir
 
-Dependencies:
-    pip install tiktoken xxhash diskcache ollama pydantic
-    pip install pydantic-settings strenum mineru
-    pip install openai  # only needed for OpenAI-compatible backends
+All parameters are managed in config.yaml.
 
 Output:
-    Generates <filename>.md in final_md_file_save_dir.
-    Prints a JSON result summary to stdout on completion.
+    process: writes <filename>.md, prints JSON to stdout.
+    extract-pages: writes <basename>-<range>.pdf for each range, prints JSON to stdout.
 """
 
 import argparse
@@ -39,6 +43,8 @@ import sys
 import tempfile
 import time
 import uuid
+
+from pypdf import PdfReader, PdfWriter
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
@@ -93,6 +99,11 @@ class GenerationConf(BaseSettings):
     )
 
 
+class ExtractPagesConf(BaseModel):
+    input_pdf: str = Field(default="", description="path to input PDF for page extraction")
+    pages: list[str] = Field(default_factory=list, description="page ranges to extract, e.g. ['1-93', '100,105-110']")
+
+
 class _Config(BaseSettings):
     """Application configuration settings."""
 
@@ -130,6 +141,11 @@ class _Config(BaseSettings):
     temp_content_dir: str = Field(
         default="./tmp/parsed_asset",
         description="temp directory for parsed content",
+    )
+
+    extract_pages: ExtractPagesConf = Field(
+        default_factory=ExtractPagesConf,
+        description="configuration for extract-pages command",
     )
 
     prompt_translate: str = Field(
@@ -1474,21 +1490,84 @@ def process(
     return md_file_path
 
 
+# ----------------------------------------------------------------------------
+# extract-pages command
+def parse_page_ranges(page_ranges_str: str) -> list[int]:
+    """
+    Parse a string of page ranges (e.g. "1,3,5-7") into a list of 0-based page indices.
+    """
+    page_indices: list[int] = []
+    for r in page_ranges_str.split(","):
+        r = r.strip()
+        if "-" in r:
+            start, end = map(int, r.split("-"))
+            page_indices.extend(range(start - 1, end))
+        else:
+            page_indices.append(int(r) - 1)
+    return sorted(set(page_indices))
+
+
+def extract_pages(
+    input_pdf_path: str,
+    output_pdf_path: str,
+    page_indices: list[int],
+) -> None:
+    """
+    Extract specified pages from a PDF and save to a new file.
+    """
+    reader = PdfReader(input_pdf_path)
+    writer = PdfWriter()
+    for i in page_indices:
+        if 0 <= i < len(reader.pages):
+            writer.add_page(reader.pages[i])
+        else:
+            Logger.warning(f"Page index {i} is out of range (0..{len(reader.pages)-1}), skip")
+    with open(output_pdf_path, "wb") as f:
+        writer.write(f)
+
+
+def run_extract_pages() -> list[str]:
+    """
+    Run extract-pages using Config.extract_pages settings.
+    Returns list of output PDF paths.
+    """
+    conf = Config.extract_pages
+    if not conf.input_pdf:
+        raise ValueError("extract_pages.input_pdf is not set in config.yaml")
+    if not conf.pages:
+        raise ValueError("extract_pages.pages is empty in config.yaml")
+    input_pdf = os.path.abspath(os.path.expanduser(conf.input_pdf))
+    base, ext = os.path.splitext(input_pdf)
+    out_paths: list[str] = []
+    for pages_str in conf.pages:
+        pages_str = pages_str.strip()
+        out_path = f"{base}-{pages_str}{ext}"
+        indices = parse_page_ranges(pages_str)
+        extract_pages(input_pdf, out_path, indices)
+        out_paths.append(out_path)
+        Logger.info(f"Extracted pages '{pages_str}' -> {out_path}")
+    return out_paths
+
+
 LANG_MAPPING = {"en": "英语", "zh": "中文"}
 
 if __name__ == "__main__":
     valid_steps = ",".join(s.value for s in Step)
     parser = argparse.ArgumentParser(
-        description="PDF paper parsing, translation, and summarization tool. "
-        "All parameters except --file_path and --final_md_file_save_dir "
-        "can be configured in config.yaml. CLI flags override config values.",
+        description="PDF tool: parse/translate/summarize (default) or extract pages. "
+        "Use 'extract-pages' as first argument for page extraction.",
     )
-
-    parser.add_argument("--file_path", required=True, help="path to pdf file")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="process",
+        choices=["process", "extract-pages"],
+        help="process (default) or extract-pages",
+    )
+    parser.add_argument("--file_path", help="path to pdf file (required for process)")
     parser.add_argument(
         "--final_md_file_save_dir",
-        required=True,
-        help="output directory for markdown file",
+        help="output directory for markdown file (required for process)",
     )
     parser.add_argument(
         "--steps",
@@ -1499,6 +1578,31 @@ if __name__ == "__main__":
     parser.add_argument("--temp_content_dir", help="override config temp content folder")
 
     args = parser.parse_args()
+
+    if args.command == "extract-pages":
+        begin_ts = time.time()
+        try:
+            out_paths = run_extract_pages()
+            result = {
+                "status": "success",
+                "output_files": out_paths,
+                "elapsed_seconds": round(time.time() - begin_ts, 2),
+            }
+            print(json.dumps(result, ensure_ascii=False))
+        except Exception as e:
+            Logger.error(f"Extract-pages failed: {e}")
+            result = {
+                "status": "error",
+                "error": str(e),
+                "elapsed_seconds": round(time.time() - begin_ts, 2),
+            }
+            print(json.dumps(result, ensure_ascii=False))
+            sys.exit(1)
+        sys.exit(0)
+
+    # process (default)
+    if not args.file_path or not args.final_md_file_save_dir:
+        parser.error("process requires --file_path and --final_md_file_save_dir")
 
     steps = args.steps if args.steps else Config.steps
     src_lang_code = args.src_lang if args.src_lang else Config.src_lang
