@@ -37,8 +37,11 @@ build-backend = "hatchling.build"
 line-length = 120
 target-version = ["py312"]
 
+[project.scripts]
+paper-reading = "paper_reading.cli:main"
+
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = ["paper_reading"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
