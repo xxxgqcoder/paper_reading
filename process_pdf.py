@@ -517,6 +517,22 @@ class OllamaBackend(LLMBackend):
             v: gen_conf[k] for k, v in self._OPTION_KEY_MAP.items() if k in gen_conf
         }
 
+    @staticmethod
+    def _log_token_stats(resp):
+        if not resp:
+            return
+        eval_count = resp.get("eval_count", 0)
+        eval_duration_ns = resp.get("eval_duration", 0)
+        prompt_eval_count = resp.get("prompt_eval_count", 0)
+        total_duration_ns = resp.get("total_duration", 0)
+        if eval_count > 0 and eval_duration_ns > 0:
+            gen_tps = eval_count / (eval_duration_ns / 1e9)
+            total_s = total_duration_ns / 1e9 if total_duration_ns else 0
+            Logger.info(
+                f"Token stats: prompt={prompt_eval_count}, completion={eval_count}, "
+                f"speed={gen_tps:.1f} tok/s, total={total_s:.1f}s"
+            )
+
     def chat(self, model, messages, gen_conf):
         resp = self._client.chat(
             model=model,
@@ -524,6 +540,7 @@ class OllamaBackend(LLMBackend):
             options=self._build_options(gen_conf),
             keep_alive=10,
         )
+        self._log_token_stats(resp)
         return resp["message"]["content"] if resp else None
 
     def vision_chat(self, model, prompt, image_b64, gen_conf):
@@ -532,6 +549,7 @@ class OllamaBackend(LLMBackend):
             messages=[{"role": "user", "content": prompt, "images": [image_b64]}],
             options=self._build_options(gen_conf),
         )
+        self._log_token_stats(resp)
         return resp["message"]["content"] if resp else None
 
 
@@ -568,12 +586,27 @@ class OpenAIBackend(LLMBackend):
             params["frequency_penalty"] = gen_conf["frequency_penalty"]
         return params
 
+    @staticmethod
+    def _log_token_stats(resp, elapsed: float):
+        usage = getattr(resp, "usage", None)
+        if not usage:
+            return
+        prompt_tokens = usage.prompt_tokens or 0
+        completion_tokens = usage.completion_tokens or 0
+        gen_tps = completion_tokens / elapsed if elapsed > 0 and completion_tokens > 0 else 0
+        Logger.info(
+            f"Token stats: prompt={prompt_tokens}, completion={completion_tokens}, "
+            f"speed={gen_tps:.1f} tok/s, elapsed={elapsed:.1f}s"
+        )
+
     def chat(self, model, messages, gen_conf):
+        t0 = time.monotonic()
         resp = self._client.chat.completions.create(
             model=model,
             messages=messages,
             **self._build_params(gen_conf),
         )
+        self._log_token_stats(resp, time.monotonic() - t0)
         if resp.choices:
             return resp.choices[0].message.content
         return None
@@ -591,11 +624,13 @@ class OpenAIBackend(LLMBackend):
                 ],
             }
         ]
+        t0 = time.monotonic()
         resp = self._client.chat.completions.create(
             model=model,
             messages=messages,
             **self._build_params(gen_conf),
         )
+        self._log_token_stats(resp, time.monotonic() - t0)
         if resp.choices:
             return resp.choices[0].message.content
         return None
