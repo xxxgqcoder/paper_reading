@@ -4,7 +4,7 @@ vision_model_name: qwen2.5vl:7b
 max_context_token_num: 60000
 cache_data_dir: ~/.cache/llm_cache
 
-parser_config_file_path: ~/projects/paper_reading/magic-pdf.json
+parser_config_file_path: ./magic-pdf.json
 asset_save_dir: ~/obsidian/attachments
 
 gen_conf:

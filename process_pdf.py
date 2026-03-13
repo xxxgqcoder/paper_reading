@@ -82,9 +82,12 @@ class _Config(BaseSettings):
     )
     @classmethod
     def expand_home_path(cls, v: str) -> str:
-        """Expand ~ to absolute home directory path."""
+        """Expand ~ and resolve relative paths against project base directory."""
         if v:
-            return os.path.abspath(os.path.expanduser(v))
+            v = os.path.expanduser(v)
+            if not os.path.isabs(v):
+                v = os.path.join(get_project_base_directory(), v)
+            return os.path.abspath(v)
         return v
 
     @classmethod
@@ -481,6 +484,138 @@ def image_chat(
 
 
 # ----------------------------------------------------------------------------
+# MinerU model management
+
+
+def _find_mineru_model_dir() -> str | None:
+    """Scan HuggingFace cache for an existing MinerU PDF-Extract-Kit snapshot."""
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        cache_info = scan_cache_dir()
+        for repo in cache_info.repos:
+            if "PDF-Extract-Kit" in repo.repo_id:
+                for revision in sorted(
+                    repo.revisions, key=lambda r: r.last_modified, reverse=True
+                ):
+                    return str(revision.snapshot_path)
+    except Exception as e:
+        Logger.warning(f"Failed to scan HuggingFace cache: {e}")
+    return None
+
+
+def _download_mineru_models() -> str:
+    """Download all MinerU model weights. Returns the local snapshot directory."""
+    from mineru.utils.enum_class import ModelPath
+
+    model_source = os.getenv("MINERU_MODEL_SOURCE", "huggingface")
+    Logger.info(f"Downloading MinerU models from source: {model_source}")
+
+    repo_mapping = {
+        "huggingface": ModelPath.pipeline_root_hf,
+        "modelscope": ModelPath.pipeline_root_modelscope,
+    }
+    repo_id = repo_mapping.get(model_source)
+    if repo_id is None:
+        raise ValueError(
+            f"Unknown model source: {model_source},"
+            " expected 'huggingface' or 'modelscope'"
+        )
+
+    if model_source == "huggingface":
+        from huggingface_hub import snapshot_download
+    else:
+        from modelscope import snapshot_download  # type: ignore[no-redef]
+
+    model_paths = [
+        ModelPath.doclayout_yolo,
+        ModelPath.yolo_v8_mfd,
+        ModelPath.unimernet_small,
+        ModelPath.pytorch_paddle,
+        ModelPath.layout_reader,
+        ModelPath.slanet_plus,
+        ModelPath.unet_structure,
+        ModelPath.paddle_table_cls,
+        ModelPath.paddle_orientation_classification,
+    ]
+    downloaded_dir = ""
+    for model_path in model_paths:
+        relative_path = model_path.strip("/")
+        Logger.info(f"Downloading model component: {relative_path}")
+        downloaded_dir = snapshot_download(
+            repo_id,
+            allow_patterns=[relative_path, relative_path + "/*"],
+        )
+
+    Logger.info(f"All models downloaded to: {downloaded_dir}")
+    return downloaded_dir
+
+
+def ensure_mineru_model() -> str:
+    """
+    Ensure MinerU model weights are available locally.
+    Downloads them automatically if not found.
+
+    Override with environment variable MINERU_MODEL_DIR to skip auto-detection.
+    """
+    env_model_dir = os.environ.get("MINERU_MODEL_DIR")
+    if env_model_dir:
+        expanded = os.path.abspath(os.path.expanduser(env_model_dir))
+        if os.path.isdir(expanded):
+            Logger.info(f"Using model dir from MINERU_MODEL_DIR: {expanded}")
+            return expanded
+        Logger.warning(
+            f"MINERU_MODEL_DIR={env_model_dir} does not exist,"
+            " falling back to auto-detection"
+        )
+
+    model_dir = _find_mineru_model_dir()
+    if model_dir:
+        Logger.info(f"Found existing MinerU model: {model_dir}")
+        return model_dir
+
+    Logger.info(
+        "MinerU models not found locally."
+        " Downloading (one-time operation, may take a while)..."
+    )
+    return _download_mineru_models()
+
+
+def prepare_mineru_runtime_config(model_dir: str) -> str:
+    """
+    Read the template config (magic-pdf.json), fill in model directory and
+    self-reference path, expand all paths, then write to a temp file.
+
+    Returns the path to the generated runtime config file.
+    """
+    with open(Config.parser_config_file_path) as f:
+        conf = json.load(f)
+
+    runtime_config_path = os.path.join(
+        tempfile.gettempdir(), "mineru_runtime_config.json"
+    )
+    conf["models-dir"] = {"pipeline": model_dir}
+    conf["mineru_tools_conf_json"] = runtime_config_path
+
+    def expand_value(value: Any) -> Any:
+        if isinstance(value, str) and "~" in value:
+            return os.path.abspath(os.path.expanduser(value))
+        elif isinstance(value, dict):
+            return {k: expand_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [expand_value(item) for item in value]
+        return value
+
+    conf = expand_value(conf)
+
+    with open(runtime_config_path, "w", encoding="utf-8") as f:
+        json.dump(conf, f, ensure_ascii=False, indent=4)
+
+    Logger.info(f"Runtime MinerU config written to: {runtime_config_path}")
+    return runtime_config_path
+
+
+# ----------------------------------------------------------------------------
 # parser
 
 
@@ -489,57 +624,16 @@ class PDFParser:
     PDF parser implementation, backed by [MinerU](https://github.com/opendatalab/MinerU).
     """
 
-    def __init__(self):
+    def __init__(self, runtime_config_path: str):
         super().__init__()
 
-        with open(file=Config.parser_config_file_path) as f:  # type: ignore
+        with open(runtime_config_path) as f:
             conf = json.load(f)
 
-        # Expand home directory paths in configuration
-        conf = self._expand_paths_in_config(conf)
+        Logger.info(f"Parser config: {json.dumps(conf, indent=4)}")
 
-        Logger.info(f"Parsr config: {json.dumps(conf, indent=4)}")
-
-        # set environment variable for magic_pdf to load config json file
-        os.environ["MINERU_TOOLS_CONFIG_JSON"] = Config.parser_config_file_path
+        os.environ["MINERU_TOOLS_CONFIG_JSON"] = runtime_config_path
         os.environ["MINERU_MODEL_SOURCE"] = conf.get("mineru_model_source", "local")
-
-    def _expand_paths_in_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """
-        Recursively expand ~ in all path strings in the configuration.
-        After expansion, write the updated config back to the file to ensure
-        MinerU library can read the expanded paths.
-
-        Args:
-            config: Configuration dictionary
-
-        Returns:
-            Configuration with expanded paths
-        """
-        def expand_value(value: Any) -> Any:
-            if isinstance(value, str) and value.startswith("~"):
-                return os.path.abspath(os.path.expanduser(value))
-            elif isinstance(value, dict):
-                return {k: expand_value(v) for k, v in value.items()}
-            elif isinstance(value, list):
-                return [expand_value(item) for item in value]
-            return value
-
-<<<<<<< HEAD
-        expanded_config: dict[str, Any] = expand_value(config)
-=======
-        expanded_config = expand_value(config)
->>>>>>> a8ce415 (expand path and save back)
-        
-        # Write the expanded config back to the file so MinerU can read it
-        try:
-            with open(Config.parser_config_file_path, 'w', encoding='utf-8') as f:
-                json.dump(expanded_config, f, ensure_ascii=False, indent=4)
-            Logger.info(f"Updated config file with expanded paths: {Config.parser_config_file_path}")
-        except Exception as e:
-            Logger.warning(f"Failed to write expanded config back to file: {e}")
-        
-        return expanded_config
 
     def key_generator(self, file_path) -> str:
         file_bytes = b""
@@ -910,10 +1004,12 @@ def get_job_executor() -> ProcessPoolExecutor:
     return job_executor
 
 
-def parse_pdf_job(file_path: str, temp_content_dir: str) -> None:
+def parse_pdf_job(
+    file_path: str, temp_content_dir: str, runtime_config_path: str
+) -> None:
     Logger.info(f"Begin to process file: {file_path}")
     try:
-        parser = PDFParser()
+        parser = PDFParser(runtime_config_path)
         content_list: list[Content] = parser.parse(file_path)
     except Exception as e:
         Logger.error(f"Parse failed:\n{e}")
@@ -929,12 +1025,15 @@ def parse_pdf_job(file_path: str, temp_content_dir: str) -> None:
 
 
 @time_it(prefix="parse_pdf")
-def parse_pdf(file_path: str, temp_content_dir: str) -> list[Content]:
+def parse_pdf(
+    file_path: str, temp_content_dir: str, runtime_config_path: str
+) -> list[Content]:
     job_executor = get_job_executor()
     job_executor.submit(
         parse_pdf_job,
         file_path=file_path,
         temp_content_dir=temp_content_dir,
+        runtime_config_path=runtime_config_path,
     )
     try:
         shutil.rmtree(temp_content_dir)
@@ -1153,12 +1252,20 @@ def process(
     """
     Logger.info(f"Processing started, required steps: {steps}")
 
+    # Ensure model weights are available and generate runtime config (main process)
+    model_dir = ensure_mineru_model()
+    runtime_config_path = prepare_mineru_runtime_config(model_dir)
+
     os.makedirs(temp_content_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
     Logger.info(f"File name without out suffix: {name_without_suff}")
 
     # parse pdf
-    content_list = parse_pdf(file_path=file_path, temp_content_dir=temp_content_dir)
+    content_list = parse_pdf(
+        file_path=file_path,
+        temp_content_dir=temp_content_dir,
+        runtime_config_path=runtime_config_path,
+    )
 
     # md writer
     md_file_path = os.path.join(final_md_file_save_dir, f"{name_without_suff}.md")
