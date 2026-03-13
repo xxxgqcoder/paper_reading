@@ -1,6 +1,6 @@
-llm_endpoint: http://127.0.0.1:11434
-llm_api_key: ""
-chat_model_name: qwen3:4b
+llm_endpoint: https://openrouter.ai/api/v1
+# llm_api_key: read from env var LLM_API_KEY
+chat_model_name: google/gemini-2.5-flash
 vision_model_name: qwen2.5vl:7b
 max_context_token_num: 60000
 cache_data_dir: ~/.cache/llm_cache

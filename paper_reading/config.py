@@ -67,13 +67,17 @@ class _Config(BaseSettings):
     )
     llm_endpoint: str = Field(
         default="http://127.0.0.1:11434",
-        description="LLM API endpoint URL",
+        description=(
+            "LLM API endpoint URL."
+            " Also reads from env var LLM_ENDPOINT."
+        ),
     )
     llm_api_key: str = Field(
         default="",
         description=(
             "LLM API key (empty = Ollama native,"
-            " non-empty = OpenAI-compatible)"
+            " non-empty = OpenAI-compatible)."
+            " Also reads from env var LLM_API_KEY."
         ),
     )
     chat_model_name: str = Field(default="llama3", description="chat model name")
@@ -148,6 +152,21 @@ class _Config(BaseSettings):
         env_nested_delimiter="@@",
         nested_model_default_partial_update=True,
     )
+
+    @field_validator("llm_endpoint", mode="after")
+    @classmethod
+    def resolve_endpoint_from_env(cls, v: str) -> str:
+        """Fall back to LLM_ENDPOINT env var when config value is default."""
+        env = os.environ.get("LLM_ENDPOINT", "")
+        return env if env else v
+
+    @field_validator("llm_api_key", mode="after")
+    @classmethod
+    def resolve_api_key_from_env(cls, v: str) -> str:
+        """Fall back to LLM_API_KEY env var when config value is empty."""
+        if not v:
+            v = os.environ.get("LLM_API_KEY", "")
+        return v
 
     @field_validator(
         "cache_data_dir",
