@@ -4,9 +4,8 @@ set -e
 cd $(dirname "$0")
 echo "working directory $(pwd)"
 
-file_path="${HOME}/obsidian/PDF/Qwen2.5-VL Technical Report.pdf"
+file_path="${HOME}/obsidian/PDF/Efficient Memory Management for Large Language Model Serving with PagedAttention.pdf"
 final_md_file_save_dir="${HOME}/obsidian/Industrial/Paper Reading"
-
 
 python process_pdf.py \
     --file_path="${file_path}" \

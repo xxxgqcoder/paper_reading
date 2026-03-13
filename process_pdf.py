@@ -8,7 +8,7 @@ Required:
     --final_md_file_save_dir   Output directory for the Markdown file
 
 Optional:
-    --steps              Processing steps (default: summary,translate,original)
+    --steps              Processing steps, comma-separated (valid: summary,translate,original)
     --src_lang           Source language en/zh (default: en)
     --target_lang        Target language en/zh (default: zh)
     --llm_endpoint       LLM API endpoint URL (default: http://127.0.0.1:11434)
@@ -43,6 +43,8 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass
+from enum import Enum
 from io import TextIOWrapper
 from logging.handlers import RotatingFileHandler
 from typing import Any, TypeVar
@@ -66,6 +68,15 @@ from strenum import StrEnum
 def get_project_base_directory() -> str:
     project_base = os.path.abspath(os.path.dirname(__file__))
     return project_base
+
+
+class Step(str, Enum):
+    SUMMARY = "summary"
+    TRANSLATE = "translate"
+    ORIGINAL = "original"
+
+
+STEP_OUTPUT_ORDER: list[Step] = [Step.SUMMARY, Step.TRANSLATE, Step.ORIGINAL]
 
 
 class GenerationConf(BaseSettings):
@@ -1077,6 +1088,14 @@ class PDFParser:
 line_breaker = "\n\n"
 
 
+@dataclass
+class StepContext:
+    md_writer: TextIOWrapper
+    content_list: list[Content]
+    src_lang: str
+    target_lang: str
+
+
 PROMPT_TRANSLATE = """
 你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
 
@@ -1181,15 +1200,12 @@ def parse_pdf(
 
 # ------------------------------------------------------------------------------
 # save parsed content
-def save_parsed_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    src_lang: str = "",
-    target_lang: str = "",
-) -> None:
-    md_writer.write("# " + "=" * 4 + "  Original Content  " + "=" * 4 + line_breaker)
+def save_parsed_content(ctx: StepContext) -> None:
+    ctx.md_writer.write(
+        "# " + "=" * 4 + "  Original Content  " + "=" * 4 + line_breaker
+    )
 
-    for _, content in enumerate(content_list):
+    for _, content in enumerate(ctx.content_list):
         lines = ""
         if content.content_type == ContentType.TEXT:
             lines += content.content + line_breaker
@@ -1215,8 +1231,8 @@ def save_parsed_content(
                 lines += md_img_path + line_breaker
 
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"
-        md_writer.write(lines)
-        md_writer.flush()
+        ctx.md_writer.write(lines)
+        ctx.md_writer.flush()
 
 
 # ------------------------------------------------------------------------------
@@ -1246,22 +1262,18 @@ def translate_text_content(text: str, src_lang: str, target_lang: str) -> str:
 
 
 @time_it(prefix="translate_content")
-def translate_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    src_lang: str,
-    target_lang: str,
-) -> None:
-    """
-    Translate contents.
-    Args:
-    - content_list: a list of content.
-    - src_lang: source language display name.
-    - target_lang: target language display name.
-    """
+def translate_content(ctx: StepContext) -> None:
+    """Translate contents."""
+    content_list, src_lang, target_lang = (
+        ctx.content_list,
+        ctx.src_lang,
+        ctx.target_lang,
+    )
     Logger.info(f"Total {len(content_list)} contents")
 
-    md_writer.write("# " + "=" * 4 + "  Translated Content  " + "=" * 4 + line_breaker)
+    ctx.md_writer.write(
+        "# " + "=" * 4 + "  Translated Content  " + "=" * 4 + line_breaker
+    )
 
     i = 0
     max_content_num = 20
@@ -1275,13 +1287,13 @@ def translate_content(
             if content_list[i].content_url:
                 img_name = os.path.basename(content_list[i].content_url)
                 img_path = relative_md_image_path(Config.asset_save_dir, img_name)
-                md_writer.write(img_path + line_breaker)
+                ctx.md_writer.write(img_path + line_breaker)
 
             translated = translate_text_content(
                 content_list[i].extra_description, src_lang, target_lang
             )
             Logger.info(f"Translated content:\n{translated}")
-            md_writer.write(translated + line_breaker)
+            ctx.md_writer.write(translated + line_breaker)
 
             i = i + 1
             continue
@@ -1302,26 +1314,22 @@ def translate_content(
         Logger.info(f"Content to translate:\n{content}")
         translated = translate_text_content(content, src_lang, target_lang)
         Logger.info(f"Translated content:\n{translated}")
-        md_writer.write(translated + line_breaker)
+        ctx.md_writer.write(translated + line_breaker)
 
         i = j
 
-    md_writer.flush()
+    ctx.md_writer.flush()
 
 
 # ------------------------------------------------------------------------------
 # summary func
 @time_it(prefix="summary_content")
-def summary_content(
-    md_writer: TextIOWrapper,
-    content_list: list[Content],
-    src_lang: str,
-    target_lang: str,
-) -> None:
+def summary_content(ctx: StepContext) -> None:
+    src_lang, target_lang = ctx.src_lang, ctx.target_lang
     Logger.info(f"Summary_content, src_lang={src_lang}, target_lang={target_lang}")
 
     full_content = ""
-    for content in content_list:
+    for content in ctx.content_list:
         if content.content_type == ContentType.TEXT:
             full_content += content.content + line_breaker
         elif content.content_type in [ContentType.IMAGE, ContentType.TABLE]:
@@ -1353,18 +1361,32 @@ def summary_content(
         summary = "[LLM error]"
     Logger.info(f"Content summary:\n{summary}")
 
-    # save
-    md_writer.write("# " + "=" * 4 + "  Content Summary  " + "=" * 4 + line_breaker)
-    md_writer.write(summary + line_breaker)
-    md_writer.write("-" * 4 + line_breaker)
-    md_writer.flush()
+    ctx.md_writer.write(
+        "# " + "=" * 4 + "  Content Summary  " + "=" * 4 + line_breaker
+    )
+    ctx.md_writer.write(summary + line_breaker)
+    ctx.md_writer.write("-" * 4 + line_breaker)
+    ctx.md_writer.flush()
 
 
-step_func: dict[str, Callable[[TextIOWrapper, list[Content], str, str], None]] = {
-    "original": save_parsed_content,
-    "summary": summary_content,
-    "translate": translate_content,
+STEP_REGISTRY: dict[Step, Callable[[StepContext], None]] = {
+    Step.ORIGINAL: save_parsed_content,
+    Step.SUMMARY: summary_content,
+    Step.TRANSLATE: translate_content,
 }
+
+
+def parse_steps(raw: list[str]) -> set[Step]:
+    """Validate and convert raw step strings to Step enums. Raises on unknown names."""
+    enabled: set[Step] = set()
+    for s in raw:
+        s = s.strip()
+        try:
+            enabled.add(Step(s))
+        except ValueError:
+            valid = [e.value for e in Step]
+            raise ValueError(f"Unknown step: '{s}'. Valid steps: {valid}") from None
+    return enabled
 
 
 @time_it(prefix="process pipeline")
@@ -1390,7 +1412,8 @@ def process(
     Returns:
     - path to the output markdown file.
     """
-    Logger.info(f"Processing started, required steps: {steps}")
+    enabled_steps = parse_steps(steps)
+    Logger.info(f"Processing started, enabled steps: {[s.value for s in enabled_steps]}")
 
     # Ensure model weights are available and generate runtime config (main process)
     model_dir = ensure_mineru_model()
@@ -1411,18 +1434,21 @@ def process(
     # md writer
     md_file_path = os.path.join(final_md_file_save_dir, f"{name_without_suff}.md")
     Logger.info(f"md file path: {md_file_path}")
+    ctx = StepContext(
+        md_writer=None,  # type: ignore[arg-type]
+        content_list=content_list,
+        src_lang=src_lang,
+        target_lang=target_lang,
+    )
     with open(md_file_path, "w") as md_writer:
+        ctx.md_writer = md_writer
         md_writer.write(f"{name_without_suff}" + line_breaker)
 
-        # apply step functions
-        for step in steps:
-            Logger.info(f"Processing step: {step}")
-            step = step.strip()
-            if step not in step_func:
-                Logger.info(f"Step {step} not configured, ignore")
+        for step in STEP_OUTPUT_ORDER:
+            if step not in enabled_steps:
                 continue
-            func = step_func[step]
-            func(md_writer, content_list, src_lang, target_lang)
+            Logger.info(f"Processing step: {step.value}")
+            STEP_REGISTRY[step](ctx)
 
     Logger.info(f"Parsed markdown saved to {md_file_path}")
     return md_file_path
@@ -1443,9 +1469,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--src_lang", help="source language (en/zh)", default="en")
     parser.add_argument("--target_lang", help="target language (en/zh)", default="zh")
+    valid_steps = ",".join(s.value for s in Step)
     parser.add_argument(
         "--steps",
-        help="comma-separated processing steps",
+        help=f"comma-separated processing steps (valid: {valid_steps})",
         default="summary,translate,original",
     )
     parser.add_argument(
@@ -1485,10 +1512,11 @@ if __name__ == "__main__":
             src_lang=src_lang,
             target_lang=target_lang,
         )
+        step_names = [s.strip() for s in args.steps.split(",")]
         result = {
             "status": "success",
             "output_file": md_file_path,
-            "steps_completed": args.steps.split(","),
+            "steps_completed": step_names,
             "elapsed_seconds": round(time.time() - begin_ts, 2),
         }
         print(json.dumps(result, ensure_ascii=False))
