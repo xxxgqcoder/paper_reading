@@ -30,13 +30,9 @@ uv pip install -e .
 - **Ollama**：本地启动 Ollama，并拉取 `config.yaml` 中配置的对话模型与视觉模型。
 - **OpenAI 兼容**：在 `config.yaml` 中设置 `llm_endpoint` 与 `llm_api_key`。
 
-### 3. 下载 MinerU 模型
+### 3. MinerU 解析环境
 
-```sh
-python download_mineru_model.py
-```
-
-可通过环境变量 `MINERU_MODEL_SOURCE` 选择 `huggingface` 或 `modelscope`。
+PDF 解析依赖 [MinerU](https://github.com/opendatalab/MinerU) 及其模型。本仓库不提供模型下载脚本，请按 MinerU 官方文档自行准备运行环境与所需模型。
 
 ### 4. 处理单个 PDF
 
@@ -50,17 +46,7 @@ python process_pdf.py \
 
 ## 使用方法
 
-### 1. 下载 MinerU 模型
-
-`download_mineru_model.py` 从 HuggingFace 或 ModelScope 下载 MinerU 解析所需模型，并生成/更新 MinerU 运行时配置。
-
-```sh
-python download_mineru_model.py
-```
-
-- 数据源由环境变量 `MINERU_MODEL_SOURCE` 控制：`huggingface` 或 `modelscope`。
-
-### 2. 提取 PDF 指定页
+### 1. 提取 PDF 指定页
 
 使用子命令 `extract-pages`，从 PDF 中按配置的页面范围导出为新 PDF。
 
@@ -82,7 +68,7 @@ python process_pdf.py extract-pages
 
 - 支持页码范围：如 `1,3,5-7` 表示第 1、3、5～7 页。
 
-### 3. 单个 PDF 解析 / 总结 / 翻译
+### 2. 单个 PDF 解析 / 总结 / 翻译
 
 默认子命令为 `process`（可省略）。必填参数：`--file_path`、`--final_md_file_save_dir`。
 
@@ -108,7 +94,7 @@ python process_pdf.py \
 
 未指定的参数以 `config.yaml` 为准。
 
-### 4. 批量处理
+### 3. 批量处理
 
 仓库未附带批量脚本。可自行写脚本遍历 PDF 目录，对每个文件调用上述 `process_pdf.py` 命令（或循环调用 `process()`），并根据需要设置 `pdf_folder`、`output_folder`、`steps` 等。
 
