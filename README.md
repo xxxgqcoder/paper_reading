@@ -1,75 +1,143 @@
-# Paper Reading Pipeline
+# 论文阅读处理流程
 
-This repository contains a Python-based pipeline for processing PDF documents, specifically academic papers. It uses `MinerU` to parse the PDF, extracting text, images, and tables. It then uses a local Ollama instance to summarize and translate the content, saving the final result as a Markdown file.
+基于 Python 的 PDF 学术论文处理流程：使用 **MinerU** 解析 PDF（文本、图像、表格），通过本地 **Ollama** 或任意 **OpenAI 兼容 API** 进行总结与翻译，输出 Markdown。
 
-## Features
+## 功能特性
 
-- **PDF Parsing**: Leverages `MinerU` to accurately parse PDF layouts, including text, images, and tables.
-- **LLM Integration**: Connects to a local Ollama instance for content summarization and translation.
-- **Configurable**: Settings like model names, paths, and generation parameters are managed through a `config.yaml` file.
-- **Caching**: Caches intermediate results to speed up subsequent runs on the same file.
-- **Modular Steps**: Allows you to choose which processing steps to run (`summary`, `translate`, `original`).
+- **PDF 解析**：MinerU 解析版面，提取文本、图像与表格。
+- **LLM 集成**：支持 Ollama（无需 API Key）或配置 `llm_api_key` 使用 OpenAI 兼容接口。
+- **可配置**：模型、路径、生成参数、提示词模板等均在 `config.yaml` 中配置。
+- **缓存**：中间结果缓存，同一文件再次处理更快。
+- **步骤可选**：可只跑 `original`、`summary`、`translate` 或其组合。
 
-## Setup
+## 环境要求
 
-### 1. Install Dependencies
+- Python ≥ 3.12
+- 推荐使用 [uv](https://docs.astral.sh/uv/) 管理依赖与虚拟环境
+
+## 快速开始
+
+### 1. 安装依赖
+
 ```sh
-uv pip install -r requirements.txt
+uv sync
+# 或
+uv pip install -e .
 ```
 
-### 2. Configure Ollama
-Ensure you have Ollama running and have downloaded the required models specified in your configuration.
+### 2. 配置 LLM
 
-### 3. Create Configuration File
-Create a `config.yaml` file in the root of the project. You can use the provided `config.yaml` as a template. Update the paths to match your system.
+- **Ollama**：本地启动 Ollama，并拉取 `config.yaml` 中配置的对话模型与视觉模型。
+- **OpenAI 兼容**：在 `config.yaml` 中设置 `llm_endpoint` 与 `llm_api_key`。
+
+### 3. MinerU 解析环境
+
+PDF 解析依赖 [MinerU](https://github.com/opendatalab/MinerU) 及其模型。本仓库不提供模型下载脚本，请按 MinerU 官方文档自行准备运行环境与所需模型。
+
+### 4. 处理单个 PDF
+
+```sh
+python process_pdf.py \
+    --file_path /path/to/paper.pdf \
+    --final_md_file_save_dir /path/to/output
+```
+
+可选：复制并修改 `run_process_pdf.sh` 中的路径后执行 `./run_process_pdf.sh` 作为快捷方式。
+
+## 使用方法
+
+### 1. 提取 PDF 指定页
+
+使用子命令 `extract-pages`，从 PDF 中按配置的页面范围导出为新 PDF。
+
+在 `config.yaml` 中配置：
 
 ```yaml
-ollama_host: http://127.0.0.1:11434
+extract_pages:
+    input_pdf: ~/path/to/input.pdf
+    pages:
+        - 1-93
+        - 100,105-110
+```
+
+然后执行：
+
+```sh
+python process_pdf.py extract-pages
+```
+
+- 支持页码范围：如 `1,3,5-7` 表示第 1、3、5～7 页。
+
+### 2. 单个 PDF 解析 / 总结 / 翻译
+
+默认子命令为 `process`（可省略）。必填参数：`--file_path`、`--final_md_file_save_dir`。
+
+```sh
+python process_pdf.py \
+    --file_path /path/to/paper.pdf \
+    --final_md_file_save_dir /path/to/output \
+    --src_lang en \
+    --target_lang zh \
+    --steps original,summary,translate
+```
+
+**参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `--file_path` | 输入 PDF 路径（process 时必填） |
+| `--final_md_file_save_dir` | 输出 Markdown 所在目录（process 时必填） |
+| `--temp_content_dir` | 解析过程临时文件目录，默认使用 config 中的 `temp_content_dir` |
+| `--src_lang` | 源语言，如 `en`（默认） |
+| `--target_lang` | 目标语言，如 `zh`（默认） |
+| `--steps` | 逗号分隔的步骤：`summary`（摘要）、`translate`（翻译）、`original`（原文） |
+
+未指定的参数以 `config.yaml` 为准。
+
+### 3. 批量处理
+
+仓库未附带批量脚本。可自行写脚本遍历 PDF 目录，对每个文件调用上述 `process_pdf.py` 命令（或循环调用 `process()`），并根据需要设置 `pdf_folder`、`output_folder`、`steps` 等。
+
+## 配置
+
+主配置为项目根目录下的 `config.yaml`（可复制仓库内示例并按本机路径修改）。主要字段如下。
+
+### LLM 与模型
+
+```yaml
+llm_endpoint: http://127.0.0.1:11434   # Ollama 或 OpenAI 兼容 API 地址
+llm_api_key: ""                        # 留空用 Ollama；填写则按 OpenAI 兼容方式调用
 chat_model_name: qwen3:30b-a3b-thinking-2507-q4_K_M
 vision_model_name: qwen2.5vl:7b
-max_context_token_num: 16000
-cache_data_dir: /path/to/your/cache
+max_context_token_num: 60000
+```
 
-parser_config_file_path: /path/to/your/paper_reading/magic-pdf.json
-asset_save_dir: /path/to/your/attachments
+### 路径与步骤
 
+```yaml
+cache_data_dir: ~/.cache/llm_cache
+asset_save_dir: ~/obsidian/attachments
+temp_content_dir: ./tmp/parsed_asset
+
+steps: summary,translate,original
+src_lang: en
+target_lang: zh
+```
+
+### 生成参数
+
+```yaml
 gen_conf:
     temperature: 0.7
     top_p: 0.4
     repeat_penalty: 1.2
-    num_ctx: 30000
+    num_ctx: 60000
 ```
 
-## Usage
+### 提示词模板（可选）
 
-You can run the processing pipeline using the `main.py` script. The `run.sh` script provides a convenient way to execute it.
+占位符：`{src_lang}`、`{target_lang}`、`{content}`。可在 `config.yaml` 中覆盖默认的 `prompt_translate` 与 `prompt_summary`。
 
-### Example from `run.sh`
-```sh
-#!/usr/bin/env bash
-set -e
-cd $(dirname "$0")
+### 页面提取
 
-file_path='/path/to/your/paper.pdf'
-temp_content_dir="./tmp/parsed_assets"
-final_md_file_save_dir="/path/to/your/output_markdowns"
-
-python main.py \
-    --file_path="${file_path}" \
-    --temp_content_dir="${temp_content_dir}" \
-    --final_md_file_save_dir="${final_md_file_save_dir}"
-```
-
-### Command-Line Arguments
-
-The `main.py` script accepts the following arguments:
-
-- `--file_path`: Path to the input PDF file.
-- `--temp_content_dir`: Directory for temporary files created during parsing.
-- `--final_md_file_save_dir`: Directory where the final Markdown file will be saved.
-- `--src_lang`: Source language of the paper (default: `en`).
-- `--target_lang`: Target language for translation (default: `zh`).
-- `--steps`: Comma-separated list of processing steps to perform. Default is `summary,original,translate`.
-  - `summary`: Generate a summary of the paper.
-  - `original`: Include the original parsed content.
-  - `translate`: Translate the content.
+`extract-pages` 的输入 PDF 与页码在 `config.yaml` 的 `extract_pages` 中配置，无需单独文件。

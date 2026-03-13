@@ -1,6 +1,47 @@
+[project]
+name = "paper-reading"
+version = "0.1.0"
+description = "A PDF processing pipeline for academic papers with summarization and translation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML",
+    "StrEnum",
+    "diskcache",
+    "huggingface-hub",
+    "jupyterlab",
+    "mineru[core]",
+    "modelscope",
+    "ollama",
+    "pydantic",
+    "pydantic-settings[yaml]",
+    "pypdf",
+    "tiktoken",
+    "xxhash",
+    "torch",
+    "doclayout_yolo",
+    "ultralytics",
+    "transformers",
+    "ftfy",
+    "openai>=1.109.1",
+]
+
+[project.optional-dependencies]
+openai = ["openai"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [tool.black]
 line-length = 120
-target-version = ["py311"]
+target-version = ["py312"]
+
+[project.scripts]
+paper-reading = "paper_reading.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["paper_reading"]
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -54,3 +95,16 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "diskcache",
+    "mineru.*",
+    "modelscope",
+]
+ignore_missing_imports = true
