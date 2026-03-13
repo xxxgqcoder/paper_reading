@@ -47,7 +47,7 @@ python download_mineru_model.py
 **功能：**
 - 从 HuggingFace 或 ModelScope 下载 MinerU 的解析模型
 - 支持通过 `MINERU_MODEL_SOURCE` 环境变量切换数据源（`huggingface` 或 `modelscope`）
-- 自动生成并修改 `magic-pdf.json` 配置文件
+- 自动生成 MinerU 运行时配置文件
 
 ### 2. 提取 PDF 页面
 
@@ -132,7 +132,6 @@ vision_model_name: qwen2.5vl:7b
 max_context_token_num: 16000
 cache_data_dir: /path/to/your/cache
 
-parser_config_file_path: /path/to/your/paper_reading/magic-pdf.json
 asset_save_dir: /path/to/your/attachments
 
 gen_conf:

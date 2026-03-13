@@ -107,7 +107,6 @@ class ExtractPagesConf(BaseModel):
 class _Config(BaseSettings):
     """Application configuration settings."""
 
-    parser_config_file_path: str = Field("", description="path to parser config file")
     asset_save_dir: str = Field(
         "",
         description="directory to save parsed asset files, including images and tables",
@@ -197,7 +196,6 @@ class _Config(BaseSettings):
 
     @field_validator(
         "cache_data_dir",
-        "parser_config_file_path",
         "asset_save_dir",
         "temp_content_dir",
         mode="after",
@@ -783,32 +781,41 @@ def ensure_mineru_model() -> str:
     return _download_mineru_models()
 
 
+_MINERU_CONFIG_TEMPLATE: dict[str, Any] = {
+    "bucket_info": {
+        "bucket-name-1": ["ak", "sk", "endpoint"],
+        "bucket-name-2": ["ak", "sk", "endpoint"],
+    },
+    "latex-delimiter-config": {
+        "display": {"left": "$$", "right": "$$"},
+        "inline": {"left": "$", "right": "$"},
+    },
+    "llm-aided-config": {
+        "title_aided": {
+            "api_key": "",
+            "base_url": "",
+            "model": "",
+            "enable": False,
+        }
+    },
+    "mineru_model_source": "local",
+}
+
+
 def prepare_mineru_runtime_config(model_dir: str) -> str:
     """
-    Read the template config (magic-pdf.json), fill in model directory and
-    self-reference path, expand all paths, then write to a temp file.
+    Build MinerU runtime config from built-in template, fill in model directory
+    and self-reference path, then write to a temp file.
 
     Returns the path to the generated runtime config file.
     """
-    with open(Config.parser_config_file_path) as f:
-        conf = json.load(f)
+    conf = copy.deepcopy(_MINERU_CONFIG_TEMPLATE)
 
     runtime_config_path = os.path.join(
         tempfile.gettempdir(), "mineru_runtime_config.json"
     )
     conf["models-dir"] = {"pipeline": model_dir}
     conf["mineru_tools_conf_json"] = runtime_config_path
-
-    def expand_value(value: Any) -> Any:
-        if isinstance(value, str) and "~" in value:
-            return os.path.abspath(os.path.expanduser(value))
-        elif isinstance(value, dict):
-            return {k: expand_value(v) for k, v in value.items()}
-        elif isinstance(value, list):
-            return [expand_value(item) for item in value]
-        return value
-
-    conf = expand_value(conf)
 
     with open(runtime_config_path, "w", encoding="utf-8") as f:
         json.dump(conf, f, ensure_ascii=False, indent=4)
