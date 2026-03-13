@@ -11,14 +11,16 @@ Optional:
     --steps              Processing steps (default: summary,translate,original)
     --src_lang           Source language en/zh (default: en)
     --target_lang        Target language en/zh (default: zh)
-    --ollama_host        Ollama server address (overrides config.yaml)
-    --chat_model         Chat model name (overrides config.yaml)
-    --vision_model       Vision model name (overrides config.yaml)
+    --llm_endpoint       LLM API endpoint URL (default: http://127.0.0.1:11434)
+    --llm_api_key        LLM API key (empty = Ollama, non-empty = OpenAI-compatible)
+    --chat_model         Chat model name
+    --vision_model       Vision model name
     --temp_content_dir   Temp content folder (default: ./tmp/parsed_asset)
 
 Dependencies:
     pip install tiktoken xxhash diskcache ollama pydantic
     pip install pydantic-settings strenum mineru
+    pip install openai  # only needed for --llm_backend=openai
 
 Output:
     Generates <filename>.md in final_md_file_save_dir.
@@ -38,6 +40,7 @@ import sys
 import tempfile
 import time
 import uuid
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from io import TextIOWrapper
@@ -47,7 +50,6 @@ from typing import Any, TypeVar
 import tiktoken
 import xxhash
 from diskcache import Cache
-from ollama import Client as OllamaClient
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import (
     BaseSettings,
@@ -98,7 +100,14 @@ class _Config(BaseSettings):
     gen_conf: GenerationConf = Field(
         default_factory=GenerationConf, description="Generation configuration."
     )
-    ollama_host: str = Field(default="", description="ollama server host")
+    llm_endpoint: str = Field(
+        default="http://127.0.0.1:11434",
+        description="LLM API endpoint URL",
+    )
+    llm_api_key: str = Field(
+        default="",
+        description="LLM API key (empty = Ollama native, non-empty = OpenAI-compatible)",
+    )
     chat_model_name: str = Field(default="llama3", description="chat model name")
     vision_model_name: str = Field(default="llama3", description="vision model name")
 
@@ -387,33 +396,157 @@ def cache_it(
 # LLM api
 
 
-_OLLAMA_KEY_MAP = {
-    "temperature": "temperature",
-    "max_tokens": "num_predict",
-    "top_p": "top_p",
-    "presence_penalty": "presence_penalty",
-    "frequency_penalty": "frequency_penalty",
-    "repeat_penalty": "repeat_penalty",
-    "num_ctx": "num_ctx",
-}
+class LLMBackend(ABC):
+    """Abstract base class for LLM API backends."""
+
+    @abstractmethod
+    def chat(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        gen_conf: dict[str, Any],
+    ) -> str | None: ...
+
+    @abstractmethod
+    def vision_chat(
+        self,
+        model: str,
+        prompt: str,
+        image_b64: str,
+        gen_conf: dict[str, Any],
+    ) -> str | None: ...
 
 
-def _ollama_options(gen_conf: dict[str, Any] | None = None) -> dict[str, Any]:
-    conf = gen_conf or Config.gen_conf.model_copy(deep=True).model_dump()
-    return {v: conf[k] for k, v in _OLLAMA_KEY_MAP.items() if k in conf}
+class OllamaBackend(LLMBackend):
+    _OPTION_KEY_MAP = {
+        "temperature": "temperature",
+        "max_tokens": "num_predict",
+        "top_p": "top_p",
+        "presence_penalty": "presence_penalty",
+        "frequency_penalty": "frequency_penalty",
+        "repeat_penalty": "repeat_penalty",
+        "num_ctx": "num_ctx",
+    }
 
+    def __init__(self, host: str, timeout: int = 15 * 60):
+        from ollama import Client as OllamaClient
 
-_ollama_client: OllamaClient | None = None
+        self._client = OllamaClient(host=host, timeout=timeout)
 
+    def _build_options(self, gen_conf: dict[str, Any]) -> dict[str, Any]:
+        return {
+            v: gen_conf[k] for k, v in self._OPTION_KEY_MAP.items() if k in gen_conf
+        }
 
-def _get_ollama_client() -> OllamaClient:
-    global _ollama_client
-    if _ollama_client is None:
-        _ollama_client = OllamaClient(
-            host=Config.ollama_host,
-            timeout=15 * 60,
+    def chat(self, model, messages, gen_conf):
+        resp = self._client.chat(
+            model=model,
+            messages=messages,
+            options=self._build_options(gen_conf),
+            keep_alive=10,
         )
-    return _ollama_client
+        return resp["message"]["content"] if resp else None
+
+    def vision_chat(self, model, prompt, image_b64, gen_conf):
+        resp = self._client.chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt, "images": [image_b64]}],
+            options=self._build_options(gen_conf),
+        )
+        return resp["message"]["content"] if resp else None
+
+
+class OpenAIBackend(LLMBackend):
+    def __init__(self, api_key: str, base_url: str = "", timeout: int = 15 * 60):
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ImportError(
+                "openai package required for OpenAI backend. "
+                "Install with: pip install openai"
+            ) from exc
+
+        self._client = OpenAI(
+            api_key=api_key,
+            base_url=base_url or None,
+            timeout=timeout,
+        )
+
+    @staticmethod
+    def _build_params(gen_conf: dict[str, Any]) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if "temperature" in gen_conf:
+            params["temperature"] = gen_conf["temperature"]
+        if "top_p" in gen_conf:
+            params["top_p"] = gen_conf["top_p"]
+        if "max_tokens" in gen_conf:
+            params["max_tokens"] = gen_conf["max_tokens"]
+        if "num_ctx" in gen_conf:
+            params.setdefault("max_tokens", gen_conf["num_ctx"])
+        if "presence_penalty" in gen_conf:
+            params["presence_penalty"] = gen_conf["presence_penalty"]
+        if "frequency_penalty" in gen_conf:
+            params["frequency_penalty"] = gen_conf["frequency_penalty"]
+        return params
+
+    def chat(self, model, messages, gen_conf):
+        resp = self._client.chat.completions.create(
+            model=model,
+            messages=messages,
+            **self._build_params(gen_conf),
+        )
+        if resp.choices:
+            return resp.choices[0].message.content
+        return None
+
+    def vision_chat(self, model, prompt, image_b64, gen_conf):
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                ],
+            }
+        ]
+        resp = self._client.chat.completions.create(
+            model=model,
+            messages=messages,
+            **self._build_params(gen_conf),
+        )
+        if resp.choices:
+            return resp.choices[0].message.content
+        return None
+
+
+_llm_backend: LLMBackend | None = None
+
+
+def _get_llm_backend() -> LLMBackend:
+    global _llm_backend
+    if _llm_backend is None:
+        if Config.llm_api_key:
+            _llm_backend = OpenAIBackend(
+                api_key=Config.llm_api_key,
+                base_url=Config.llm_endpoint,
+            )
+            Logger.info(f"Using OpenAI-compatible backend: {Config.llm_endpoint}")
+        else:
+            _llm_backend = OllamaBackend(host=Config.llm_endpoint)
+            Logger.info(f"Using Ollama backend: {Config.llm_endpoint}")
+    return _llm_backend
+
+
+def _strip_thinking_tags(text: str) -> str:
+    """Strip <think>/<thinking> wrapper tags from LLM output."""
+    if "</think>" in text:
+        text = text.split("</think>")[-1]
+    if "</thinking>" in text:
+        text = text.split("</thinking>")[-1]
+    return text.strip()
 
 
 @time_it(prefix="llm chat")
@@ -422,57 +555,43 @@ def _get_ollama_client() -> OllamaClient:
     + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
 )
 def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
-    options = _ollama_options(gen_conf)
-    history = [{"role": "user", "content": prompt}]
-
-    resp = None
+    messages = [{"role": "user", "content": prompt}]
     try:
-        resp = _get_ollama_client().chat(
+        ans = _get_llm_backend().chat(
             model=Config.chat_model_name,
-            messages=history,
-            options=options,
-            keep_alive=10,
+            messages=messages,
+            gen_conf=gen_conf,
         )
     except Exception as e:
         Logger.error(f"LLM chat exception: {e}")
         return None
-
-    if not resp:
+    if not ans:
         return None
-
-    ans: str = resp["message"]["content"].strip()
-    if "</think>" in ans:
-        ans = ans.split("</think>")[-1]
-
-    if "</thinking>" in ans:
-        ans = ans.split("</thinking>")[-1]
-    return ans.strip()
+    return _strip_thinking_tags(ans)
 
 
 @time_it(prefix="image chat")
 @cache_it(
-    key_generator=lambda prompt, image_content, gen_conf: "image_chat::prompt_hash"
-    + f"{hash64((prompt + image_content + json.dumps(gen_conf, default=str)).encode('utf-8', errors='ignore'))}"
+    key_generator=lambda prompt, image_content, gen_conf: (
+        "image_chat::prompt_hash"
+        + f"{hash64((prompt + image_content + json.dumps(gen_conf, default=str)).encode('utf-8', errors='ignore'))}"
+    )
 )
 def image_chat(
     prompt: str,
     image_content: str,
     gen_conf: dict[str, Any],
 ) -> str | None:
-    options = _ollama_options(gen_conf)
-    resp = None
     try:
-        resp = _get_ollama_client().chat(
+        return _get_llm_backend().vision_chat(
             model=Config.vision_model_name,
-            messages=[{"role": "user", "content": prompt, "images": [image_content]}],
-            options=options,
+            prompt=prompt,
+            image_b64=image_content,
+            gen_conf=gen_conf,
         )
     except Exception as e:
         Logger.error(f"Vision model chat exception: {e}")
         return None
-
-    ret: str = resp["message"]["content"]
-    return ret
 
 
 # ----------------------------------------------------------------------------
@@ -1322,16 +1441,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--temp_content_dir", help="temp content folder", default="./tmp/parsed_asset"
     )
-    parser.add_argument(
-        "--ollama_host", help="ollama server address (overrides config)"
-    )
-    parser.add_argument("--chat_model", help="chat model name (overrides config)")
-    parser.add_argument("--vision_model", help="vision model name (overrides config)")
+    parser.add_argument("--llm_endpoint", help="LLM API endpoint URL")
+    parser.add_argument("--llm_api_key", help="LLM API key (triggers OpenAI mode)")
+    parser.add_argument("--chat_model", help="chat model name")
+    parser.add_argument("--vision_model", help="vision model name")
 
     args = parser.parse_args()
 
-    if args.ollama_host:
-        Config.ollama_host = args.ollama_host
+    if args.llm_endpoint:
+        Config.llm_endpoint = args.llm_endpoint
+    if args.llm_api_key:
+        Config.llm_api_key = args.llm_api_key
     if args.chat_model:
         Config.chat_model_name = args.chat_model
     if args.vision_model:

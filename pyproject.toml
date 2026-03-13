@@ -23,7 +23,11 @@ dependencies = [
     "ultralytics",
     "transformers",
     "ftfy",
+    "openai>=1.109.1",
 ]
+
+[project.optional-dependencies]
+openai = ["openai"]
 
 [build-system]
 requires = ["hatchling"]
