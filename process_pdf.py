@@ -551,8 +551,12 @@ def _strip_thinking_tags(text: str) -> str:
 
 @time_it(prefix="llm chat")
 @cache_it(
-    key_generator=lambda prompt, gen_conf: "llm_chat::prompt_hash::"
-    + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
+    key_generator=lambda prompt, gen_conf: (
+        "llm_chat::"
+        + hash64(f"{Config.llm_endpoint}::{Config.chat_model_name}".encode())
+        + "::prompt_hash::"
+        + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
+    )
 )
 def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
     messages = [{"role": "user", "content": prompt}]
@@ -573,8 +577,14 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
 @time_it(prefix="image chat")
 @cache_it(
     key_generator=lambda prompt, image_content, gen_conf: (
-        "image_chat::prompt_hash"
-        + f"{hash64((prompt + image_content + json.dumps(gen_conf, default=str)).encode('utf-8', errors='ignore'))}"
+        "image_chat::"
+        + hash64(f"{Config.llm_endpoint}::{Config.vision_model_name}".encode())
+        + "::prompt_hash::"
+        + hash64(
+            (prompt + image_content + json.dumps(gen_conf, default=str)).encode(
+                "utf-8", errors="ignore"
+            )
+        )
     )
 )
 def image_chat(
