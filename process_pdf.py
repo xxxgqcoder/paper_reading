@@ -1,3 +1,30 @@
+"""process_pdf.py - PDF paper parsing, translation, and summarization tool.
+
+Usage:
+    python process_pdf.py --file_path <pdf> --final_md_file_save_dir <dir> [options]
+
+Required:
+    --file_path                Path to the PDF file
+    --final_md_file_save_dir   Output directory for the Markdown file
+
+Optional:
+    --steps              Processing steps (default: summary,translate,original)
+    --src_lang           Source language en/zh (default: en)
+    --target_lang        Target language en/zh (default: zh)
+    --ollama_host        Ollama server address (overrides config.yaml)
+    --chat_model         Chat model name (overrides config.yaml)
+    --vision_model       Vision model name (overrides config.yaml)
+    --temp_content_dir   Temp content folder (default: ./tmp/parsed_asset)
+
+Dependencies:
+    pip install tiktoken xxhash diskcache ollama pydantic
+    pip install pydantic-settings strenum mineru
+
+Output:
+    Generates <filename>.md in final_md_file_save_dir.
+    Prints a JSON result summary to stdout on completion.
+"""
+
 import argparse
 import base64
 import copy
@@ -6,10 +33,11 @@ import json
 import logging
 import os
 import pickle
-import random
 import shutil
+import sys
 import tempfile
 import time
+import uuid
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from io import TextIOWrapper
@@ -61,11 +89,15 @@ class _Config(BaseSettings):
         "",
         description="directory to save parsed asset files, including images and tables",
     )
-    cache_data_dir: str = Field(default="~/.cache/llm_cache", description="cache data directory")
+    cache_data_dir: str = Field(
+        default="~/.cache/llm_cache", description="cache data directory"
+    )
     max_context_token_num: int = Field(
         default=1024 * 16, description="max context token num"
     )
-    gen_conf: GenerationConf = Field(..., description="Generation configuration.")
+    gen_conf: GenerationConf = Field(
+        default_factory=GenerationConf, description="Generation configuration."
+    )
     ollama_host: str = Field(default="", description="ollama server host")
     chat_model_name: str = Field(default="llama3", description="chat model name")
     vision_model_name: str = Field(default="llama3", description="vision model name")
@@ -99,10 +131,11 @@ class _Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (
-            env_settings,
-            YamlConfigSettingsSource(settings_cls),
-        )
+        yaml_path = os.path.join(get_project_base_directory(), "config.yaml")
+        sources: list[PydanticBaseSettingsSource] = [env_settings]
+        if os.path.exists(yaml_path):
+            sources.append(YamlConfigSettingsSource(settings_cls))
+        return tuple(sources)
 
 
 Config = _Config()  # type: ignore
@@ -299,39 +332,6 @@ def relative_md_image_path(sys_image_folder: str, img_name: str) -> str:
     )
 
 
-def process_equation_mark(text: str) -> str:
-    """
-    Replaces all non-overlapping occurrences of '$ equation $' with '$equation$'.
-
-    This function uses a non-greedy regular expression to find and replace
-    the specified pattern, ensuring that it correctly handles multiple
-    equations within the same string.
-
-    Args:
-        text: The input string that may contain patterns to be replaced.
-
-    Returns:
-        A new string with all occurrences of '$ equation $' replaced by
-        '$equation$'.
-    """
-    # The regex pattern is:
-    # \$   : Matches the opening dollar sign.
-    #       : Matches the space after the opening dollar sign.
-    # (.*?) : This is a non-greedy capture group.
-    #         .   : Matches any character except for newline.
-    #         *?  : Matches the previous character zero or more times,
-    #               but as few times as possible (non-greedy).
-    #         ()  : Captures the matched "equation" part.
-    #       : Matches the space before the closing dollar sign.
-    # \$   : Matches the closing dollar sign.
-    #
-    # The replacement string r'$\1$' uses the captured group \1 (the equation)
-    # and wraps it with dollar signs without the spaces.
-    # return re.sub(r"\$ (.*?) \$", r" $\1$ ", text)
-    # NOTE: seems equations issue resolved in recent mineru.
-    return text
-
-
 def ensure_utf(text: str) -> str:
     if text is None:
         return text
@@ -387,35 +387,33 @@ def cache_it(
 # LLM api
 
 
-def _ollama_options(gen_conf: dict[str, Any]) -> dict[str, Any]:
-    if not gen_conf:
-        gen_conf = Config.gen_conf.model_copy(deep=True).model_dump()
-    if "max_tokens" in gen_conf:
-        del gen_conf["max_tokens"]
-
-    options = {}
-    if "temperature" in gen_conf:
-        options["temperature"] = gen_conf["temperature"]
-    if "max_tokens" in gen_conf:
-        options["num_predict"] = gen_conf["max_tokens"]
-    if "top_p" in gen_conf:
-        options["top_p"] = gen_conf["top_p"]
-    if "presence_penalty" in gen_conf:
-        options["presence_penalty"] = gen_conf["presence_penalty"]
-    if "frequency_penalty" in gen_conf:
-        options["frequency_penalty"] = gen_conf["frequency_penalty"]
-    if "repeat_penalty" in gen_conf:
-        options["repeat_penalty"] = gen_conf["repeat_penalty"]
-    if "num_ctx" in gen_conf:
-        options["num_ctx"] = gen_conf["num_ctx"]
-
-    return options
+_OLLAMA_KEY_MAP = {
+    "temperature": "temperature",
+    "max_tokens": "num_predict",
+    "top_p": "top_p",
+    "presence_penalty": "presence_penalty",
+    "frequency_penalty": "frequency_penalty",
+    "repeat_penalty": "repeat_penalty",
+    "num_ctx": "num_ctx",
+}
 
 
-_chat_client = OllamaClient(
-    host=Config.ollama_host,
-    timeout=15 * 60,  # time out 15 min
-)
+def _ollama_options(gen_conf: dict[str, Any] | None = None) -> dict[str, Any]:
+    conf = gen_conf or Config.gen_conf.model_copy(deep=True).model_dump()
+    return {v: conf[k] for k, v in _OLLAMA_KEY_MAP.items() if k in conf}
+
+
+_ollama_client: OllamaClient | None = None
+
+
+def _get_ollama_client() -> OllamaClient:
+    global _ollama_client
+    if _ollama_client is None:
+        _ollama_client = OllamaClient(
+            host=Config.ollama_host,
+            timeout=15 * 60,
+        )
+    return _ollama_client
 
 
 @time_it(prefix="llm chat")
@@ -429,7 +427,7 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
 
     resp = None
     try:
-        resp = _chat_client.chat(
+        resp = _get_ollama_client().chat(
             model=Config.chat_model_name,
             messages=history,
             options=options,
@@ -451,12 +449,6 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
     return ans.strip()
 
 
-_vision_client = OllamaClient(
-    host=Config.ollama_host,
-    timeout=15 * 60,  # time out 15 min
-)
-
-
 @time_it(prefix="image chat")
 @cache_it(
     key_generator=lambda prompt, image_content, gen_conf: "image_chat::prompt_hash"
@@ -470,7 +462,7 @@ def image_chat(
     options = _ollama_options(gen_conf)
     resp = None
     try:
-        resp = _vision_client.chat(
+        resp = _get_ollama_client().chat(
             model=Config.vision_model_name,
             messages=[{"role": "user", "content": prompt, "images": [image_content]}],
             options=options,
@@ -642,7 +634,7 @@ class PDFParser:
                 file_bytes = f.read()
         except Exception as e:
             Logger.error(f"Read file exception: {e}")
-            return random.random().hex()
+            return uuid.uuid4().hex
 
         return "parser::file_content_hash::" + hash64(file_bytes)
 
@@ -1029,21 +1021,21 @@ def parse_pdf(
     file_path: str, temp_content_dir: str, runtime_config_path: str
 ) -> list[Content]:
     job_executor = get_job_executor()
+
+    try:
+        shutil.rmtree(temp_content_dir)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        Logger.error(f"Remove temp content dir {temp_content_dir} failed:\n{e}")
+
     job_executor.submit(
         parse_pdf_job,
         file_path=file_path,
         temp_content_dir=temp_content_dir,
         runtime_config_path=runtime_config_path,
     )
-    try:
-        shutil.rmtree(temp_content_dir)
-    except Exception as e:
-        Logger.error(f"Remove temp content dir {temp_content_dir} failed:\n{e}")
-    try:
-        job_executor.shutdown(wait=True)
-    except Exception as e:
-        Logger.info(e)
-        os._exit(0)
+    job_executor.shutdown(wait=True)
 
     Logger.info("PDF parse job done")
 
@@ -1060,7 +1052,12 @@ def parse_pdf(
 
 # ------------------------------------------------------------------------------
 # save parsed content
-def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -> None:
+def save_parsed_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    src_lang: str = "",
+    target_lang: str = "",
+) -> None:
     md_writer.write("# " + "=" * 4 + "  Original Content  " + "=" * 4 + line_breaker)
 
     for _, content in enumerate(content_list):
@@ -1089,24 +1086,21 @@ def save_parsed_content(md_writer: TextIOWrapper, content_list: list[Content]) -
                 lines += md_img_path + line_breaker
 
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"
-        else:
-            pass
-        lines = process_equation_mark(lines)
         md_writer.write(lines)
         md_writer.flush()
 
 
 # ------------------------------------------------------------------------------
 # translate func
-def translate_text_content(text: str) -> str:
+def translate_text_content(text: str, src_lang: str, target_lang: str) -> str:
     if is_empty(text):
         return ""
 
-    max_byte_len = 16 * 1024
+    max_char_len = 16 * 1024
     full_result = ""
-    for i in range(0, len(text), max_byte_len):
+    for i in range(0, len(text), max_char_len):
         Logger.info(f"Processing segment {i}")
-        segment = text[i : i + max_byte_len]
+        segment = text[i : i + max_char_len]
 
         formatted_prompt = PROMPT_TRANSLATE.format(
             src_lang=src_lang,
@@ -1123,11 +1117,18 @@ def translate_text_content(text: str) -> str:
 
 
 @time_it(prefix="translate_content")
-def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> None:
+def translate_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    src_lang: str,
+    target_lang: str,
+) -> None:
     """
     Translate contents.
     Args:
     - content_list: a list of content.
+    - src_lang: source language display name.
+    - target_lang: target language display name.
     """
     Logger.info(f"Total {len(content_list)} contents")
 
@@ -1147,8 +1148,9 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> 
                 img_path = relative_md_image_path(Config.asset_save_dir, img_name)
                 md_writer.write(img_path + line_breaker)
 
-            # translate description
-            translated = translate_text_content(content_list[i].extra_description)
+            translated = translate_text_content(
+                content_list[i].extra_description, src_lang, target_lang
+            )
             Logger.info(f"Translated content:\n{translated}")
             md_writer.write(translated + line_breaker)
 
@@ -1169,9 +1171,8 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> 
         content = "\n".join([content.content for content in content_list[i:j]])
         content = ensure_utf(content)
         Logger.info(f"Content to translate:\n{content}")
-        translated = translate_text_content(content)
-        translated = process_equation_mark(translated)
-        Logger.info(f"Tranlated content:\n{translated}")
+        translated = translate_text_content(content, src_lang, target_lang)
+        Logger.info(f"Translated content:\n{translated}")
         md_writer.write(translated + line_breaker)
 
         i = j
@@ -1182,8 +1183,12 @@ def translate_content(md_writer: TextIOWrapper, content_list: list[Content]) -> 
 # ------------------------------------------------------------------------------
 # summary func
 @time_it(prefix="summary_content")
-def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> None:
-    global src_lang, target_lang
+def summary_content(
+    md_writer: TextIOWrapper,
+    content_list: list[Content],
+    src_lang: str,
+    target_lang: str,
+) -> None:
     Logger.info(f"Summary_content, src_lang={src_lang}, target_lang={target_lang}")
 
     full_content = ""
@@ -1197,7 +1202,7 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
 
     Logger.info(f"Full content length: {len(full_content)}")
     token_num, _ = estimate_token_num(full_content)
-    Logger.info(f"Esitmated full content token num: {token_num}")
+    Logger.info(f"Estimated full content token num: {token_num}")
     if token_num > Config.max_context_token_num:
         ratio = float(Config.max_context_token_num) / token_num
         Logger.info(
@@ -1207,17 +1212,16 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
 
     full_content = ensure_utf(full_content)
 
-    formatted_promt = PROMPT_SUMMARY.format(
+    formatted_prompt = PROMPT_SUMMARY.format(
         src_lang=src_lang,
         target_lang=target_lang,
         content=full_content,
     )
-    Logger.info(f"Formatted prompt:\n{formatted_promt}")
+    Logger.info(f"Formatted prompt:\n{formatted_prompt}")
 
-    summary = llm_chat(prompt=formatted_promt, gen_conf=Config.gen_conf.model_dump())
+    summary = llm_chat(prompt=formatted_prompt, gen_conf=Config.gen_conf.model_dump())
     if not summary:
         summary = "[LLM error]"
-    summary = process_equation_mark(summary)
     Logger.info(f"Content summary:\n{summary}")
 
     # save
@@ -1227,7 +1231,7 @@ def summary_content(md_writer: TextIOWrapper, content_list: list[Content]) -> No
     md_writer.flush()
 
 
-step_func: dict[str, Callable[[TextIOWrapper, list[Content]], None]] = {
+step_func: dict[str, Callable[[TextIOWrapper, list[Content], str, str], None]] = {
     "original": save_parsed_content,
     "summary": summary_content,
     "translate": translate_content,
@@ -1240,15 +1244,22 @@ def process(
     temp_content_dir: str,
     final_md_file_save_dir: str,
     steps: list[str],
-) -> None:
+    src_lang: str = "英语",
+    target_lang: str = "中文",
+) -> str:
     """
     Process a pdf file and save parsed markdown file.
 
     Args:
     - file_path: absolute path to pdf file.
     - temp_content_dir: folder for saving temp parsed content.
-    - magic_config_path: path to magic pdf config file.
     - final_md_file_save_dir: folder for saving final md file.
+    - steps: list of processing step names.
+    - src_lang: source language display name.
+    - target_lang: target language display name.
+
+    Returns:
+    - path to the output markdown file.
     """
     Logger.info(f"Processing started, required steps: {steps}")
 
@@ -1257,6 +1268,7 @@ def process(
     runtime_config_path = prepare_mineru_runtime_config(model_dir)
 
     os.makedirs(temp_content_dir, exist_ok=True)
+    os.makedirs(final_md_file_save_dir, exist_ok=True)
     name_without_suff = os.path.basename(file_path).rsplit(".", 1)[0]
     Logger.info(f"File name without out suffix: {name_without_suff}")
 
@@ -1281,47 +1293,81 @@ def process(
                 Logger.info(f"Step {step} not configured, ignore")
                 continue
             func = step_func[step]
-            func(md_writer, content_list)
+            func(md_writer, content_list, src_lang, target_lang)
 
     Logger.info(f"Parsed markdown saved to {md_file_path}")
+    return md_file_path
 
 
-lang_mapping = {"en": "英语", "zh": "中文"}
+LANG_MAPPING = {"en": "英语", "zh": "中文"}
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Example of argparse usage.")
+    parser = argparse.ArgumentParser(
+        description="PDF paper parsing, translation, and summarization tool.",
+    )
 
-    parser.add_argument("--file_path", help="path to pdf file")
-    parser.add_argument("--final_md_file_save_dir", help="final md file save folder")
-    parser.add_argument("--src_lang", help="source paper language", default="en")
-    parser.add_argument("--target_lang", help="translate target language", default="zh")
+    parser.add_argument("--file_path", required=True, help="path to pdf file")
     parser.add_argument(
-        "--steps", help="required steps", default="summary,translate,original"
+        "--final_md_file_save_dir",
+        required=True,
+        help="output directory for markdown file",
+    )
+    parser.add_argument("--src_lang", help="source language (en/zh)", default="en")
+    parser.add_argument("--target_lang", help="target language (en/zh)", default="zh")
+    parser.add_argument(
+        "--steps",
+        help="comma-separated processing steps",
+        default="summary,translate,original",
     )
     parser.add_argument(
-        "--temp_content_dir",
-        help="path to temp content folder",
-        default="./tmp/parsed_asset",
+        "--temp_content_dir", help="temp content folder", default="./tmp/parsed_asset"
     )
+    parser.add_argument(
+        "--ollama_host", help="ollama server address (overrides config)"
+    )
+    parser.add_argument("--chat_model", help="chat model name (overrides config)")
+    parser.add_argument("--vision_model", help="vision model name (overrides config)")
 
     args = parser.parse_args()
 
+    if args.ollama_host:
+        Config.ollama_host = args.ollama_host
+    if args.chat_model:
+        Config.chat_model_name = args.chat_model
+    if args.vision_model:
+        Config.vision_model_name = args.vision_model
+
     temp_content_dir = os.path.realpath(args.temp_content_dir)
-    Logger.info(f"Temp content dir: {temp_content_dir}")
-
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-    Logger.info(f"Final md save folder: {final_md_file_save_dir}")
+    src_lang = LANG_MAPPING.get(args.src_lang, args.src_lang)
+    target_lang = LANG_MAPPING.get(args.target_lang, args.target_lang)
 
-    src_lang = lang_mapping[args.src_lang]
-    Logger.info(f"Source language: {src_lang}")
-
-    target_lang = lang_mapping[args.target_lang]
-    Logger.info(f"Target language: {target_lang}")
-
+    Logger.info(f"Source language: {src_lang}, Target language: {target_lang}")
     Logger.info(f"Processing file: {os.path.basename(args.file_path)}")
 
-    process(
-        file_path=args.file_path,
-        temp_content_dir=temp_content_dir,
-        final_md_file_save_dir=final_md_file_save_dir,
-        steps=args.steps.split(","),
-    )
+    begin_ts = time.time()
+    try:
+        md_file_path = process(
+            file_path=args.file_path,
+            temp_content_dir=temp_content_dir,
+            final_md_file_save_dir=final_md_file_save_dir,
+            steps=args.steps.split(","),
+            src_lang=src_lang,
+            target_lang=target_lang,
+        )
+        result = {
+            "status": "success",
+            "output_file": md_file_path,
+            "steps_completed": args.steps.split(","),
+            "elapsed_seconds": round(time.time() - begin_ts, 2),
+        }
+        print(json.dumps(result, ensure_ascii=False))
+    except Exception as e:
+        Logger.error(f"Processing failed: {e}")
+        result = {
+            "status": "error",
+            "error": str(e),
+            "elapsed_seconds": round(time.time() - begin_ts, 2),
+        }
+        print(json.dumps(result, ensure_ascii=False))
+        sys.exit(1)
