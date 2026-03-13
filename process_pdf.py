@@ -122,6 +122,46 @@ class _Config(BaseSettings):
     chat_model_name: str = Field(default="llama3", description="chat model name")
     vision_model_name: str = Field(default="llama3", description="vision model name")
 
+    prompt_translate: str = Field(
+        default=(
+            "你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。\n"
+            "\n"
+            "下面是需要翻译的内容：\n"
+            "\n"
+            "{content}\n"
+            "----\n"
+            "\n"
+            "注意：\n"
+            "- 如果要翻译的内容为引用文献、算法伪代码、代码、人名，则不需要翻译，直接返回原文\n"
+            "- 你只需要输出最终翻译结果，不要输出逐步思考过程。\n"
+            "\n"
+            "现在开始逐步思考"
+        ),
+        description="Translation prompt template. Placeholders: {src_lang}, {target_lang}, {content}",
+    )
+    prompt_summary: str = Field(
+        default=(
+            "你是一个阅读助手，阅读下面的{src_lang}内容，并完成指令。\n"
+            "\n"
+            "下面是文档内容\n"
+            "\n"
+            "{content}\n"
+            "----\n"
+            "\n"
+            "指令：使用{target_lang}语言，总结{src_lang}内容。\n"
+            "- 如果是学术论文，请总结论文的主要贡献、方法、实验和结论。\n"
+            "- 如果是技术文档，请总结技术的核心概念、功能和应用场景。\n"
+            "- 如果是一般性文档（书籍，文章等），请总结文档的主要内容和关键点。\n"
+            "\n"
+            "注意：\n"
+            "- 忽略引用部分内容，只总结文档正文部分。\n"
+            "- 你只需要输出最终总结结果，不要输出逐步思考过程。\n"
+            "\n"
+            "现在开始逐步思考"
+        ),
+        description="Summary prompt template. Placeholders: {src_lang}, {target_lang}, {content}",
+    )
+
     model_config = SettingsConfigDict(
         yaml_file=os.path.join(get_project_base_directory(), "config.yaml"),
         env_prefix="CONFIG@@",
@@ -1096,40 +1136,6 @@ class StepContext:
     target_lang: str
 
 
-PROMPT_TRANSLATE = """
-你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。
-
-下面是需要翻译的内容：
-
-{content}
-----
-
-注意：
-- 如果要翻译的内容为引用文献、算法伪代码、代码、人名，则不需要翻译，直接返回原文
-- 你只需要输出最终翻译结果，不要输出逐步思考过程。
-
-现在开始逐步思考
-"""
-
-PROMPT_SUMMARY = """
-你是一个阅读助手，阅读下面的{src_lang}内容，并完成指令。
-
-下面是文档内容
-
-{content}
-----
-
-指令：使用{target_lang}语言，总结{src_lang}内容。
-- 如果是学术论文，请总结论文的主要贡献、方法、实验和结论。
-- 如果是技术文档，请总结技术的核心概念、功能和应用场景。
-- 如果是一般性文档（书籍，文章等），请总结文档的主要内容和关键点。
-
-注意：
-- 忽略引用部分内容，只总结文档正文部分。
-- 你只需要输出最终总结结果，不要输出逐步思考过程。
-
-现在开始逐步思考
-"""
 
 
 # ------------------------------------------------------------------------------
@@ -1247,7 +1253,7 @@ def translate_text_content(text: str, src_lang: str, target_lang: str) -> str:
         Logger.info(f"Processing segment {i}")
         segment = text[i : i + max_char_len]
 
-        formatted_prompt = PROMPT_TRANSLATE.format(
+        formatted_prompt = Config.prompt_translate.format(
             src_lang=src_lang,
             target_lang=target_lang,
             content=segment,
@@ -1349,7 +1355,7 @@ def summary_content(ctx: StepContext) -> None:
 
     full_content = ensure_utf(full_content)
 
-    formatted_prompt = PROMPT_SUMMARY.format(
+    formatted_prompt = Config.prompt_summary.format(
         src_lang=src_lang,
         target_lang=target_lang,
         content=full_content,
