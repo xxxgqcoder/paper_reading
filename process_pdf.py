@@ -3,24 +3,23 @@
 Usage:
     python process_pdf.py --file_path <pdf> --final_md_file_save_dir <dir> [options]
 
-Required:
+Required (CLI only):
     --file_path                Path to the PDF file
     --final_md_file_save_dir   Output directory for the Markdown file
 
-Optional:
+Optional (CLI overrides for config.yaml):
     --steps              Processing steps, comma-separated (valid: summary,translate,original)
-    --src_lang           Source language en/zh (default: en)
-    --target_lang        Target language en/zh (default: zh)
-    --llm_endpoint       LLM API endpoint URL (default: http://127.0.0.1:11434)
-    --llm_api_key        LLM API key (empty = Ollama, non-empty = OpenAI-compatible)
-    --chat_model         Chat model name
-    --vision_model       Vision model name
-    --temp_content_dir   Temp content folder (default: ./tmp/parsed_asset)
+    --src_lang           Source language (en/zh)
+    --target_lang        Target language (en/zh)
+    --temp_content_dir   Temp content folder
+
+All other parameters (LLM endpoint, model names, prompts, generation config, etc.)
+are managed in config.yaml. See config.yaml for the full parameter list.
 
 Dependencies:
     pip install tiktoken xxhash diskcache ollama pydantic
     pip install pydantic-settings strenum mineru
-    pip install openai  # only needed for --llm_backend=openai
+    pip install openai  # only needed for OpenAI-compatible backends
 
 Output:
     Generates <filename>.md in final_md_file_save_dir.
@@ -122,6 +121,17 @@ class _Config(BaseSettings):
     chat_model_name: str = Field(default="llama3", description="chat model name")
     vision_model_name: str = Field(default="llama3", description="vision model name")
 
+    steps: str = Field(
+        default="summary,translate,original",
+        description="comma-separated processing steps",
+    )
+    src_lang: str = Field(default="en", description="source language code (en/zh)")
+    target_lang: str = Field(default="zh", description="target language code (en/zh)")
+    temp_content_dir: str = Field(
+        default="./tmp/parsed_asset",
+        description="temp directory for parsed content",
+    )
+
     prompt_translate: str = Field(
         default=(
             "你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。\n"
@@ -170,7 +180,11 @@ class _Config(BaseSettings):
     )
 
     @field_validator(
-        "cache_data_dir", "parser_config_file_path", "asset_save_dir", mode="after"
+        "cache_data_dir",
+        "parser_config_file_path",
+        "asset_save_dir",
+        "temp_content_dir",
+        mode="after",
     )
     @classmethod
     def expand_home_path(cls, v: str) -> str:
@@ -1463,8 +1477,11 @@ def process(
 LANG_MAPPING = {"en": "英语", "zh": "中文"}
 
 if __name__ == "__main__":
+    valid_steps = ",".join(s.value for s in Step)
     parser = argparse.ArgumentParser(
-        description="PDF paper parsing, translation, and summarization tool.",
+        description="PDF paper parsing, translation, and summarization tool. "
+        "All parameters except --file_path and --final_md_file_save_dir "
+        "can be configured in config.yaml. CLI flags override config values.",
     )
 
     parser.add_argument("--file_path", required=True, help="path to pdf file")
@@ -1473,37 +1490,26 @@ if __name__ == "__main__":
         required=True,
         help="output directory for markdown file",
     )
-    parser.add_argument("--src_lang", help="source language (en/zh)", default="en")
-    parser.add_argument("--target_lang", help="target language (en/zh)", default="zh")
-    valid_steps = ",".join(s.value for s in Step)
     parser.add_argument(
         "--steps",
-        help=f"comma-separated processing steps (valid: {valid_steps})",
-        default="summary,translate,original",
+        help=f"override config steps (valid: {valid_steps})",
     )
-    parser.add_argument(
-        "--temp_content_dir", help="temp content folder", default="./tmp/parsed_asset"
-    )
-    parser.add_argument("--llm_endpoint", help="LLM API endpoint URL")
-    parser.add_argument("--llm_api_key", help="LLM API key (triggers OpenAI mode)")
-    parser.add_argument("--chat_model", help="chat model name")
-    parser.add_argument("--vision_model", help="vision model name")
+    parser.add_argument("--src_lang", help="override config source language (en/zh)")
+    parser.add_argument("--target_lang", help="override config target language (en/zh)")
+    parser.add_argument("--temp_content_dir", help="override config temp content folder")
 
     args = parser.parse_args()
 
-    if args.llm_endpoint:
-        Config.llm_endpoint = args.llm_endpoint
-    if args.llm_api_key:
-        Config.llm_api_key = args.llm_api_key
-    if args.chat_model:
-        Config.chat_model_name = args.chat_model
-    if args.vision_model:
-        Config.vision_model_name = args.vision_model
-
-    temp_content_dir = os.path.realpath(args.temp_content_dir)
+    steps = args.steps if args.steps else Config.steps
+    src_lang_code = args.src_lang if args.src_lang else Config.src_lang
+    target_lang_code = args.target_lang if args.target_lang else Config.target_lang
+    temp_content_dir = os.path.realpath(
+        args.temp_content_dir if args.temp_content_dir else Config.temp_content_dir
+    )
     final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-    src_lang = LANG_MAPPING.get(args.src_lang, args.src_lang)
-    target_lang = LANG_MAPPING.get(args.target_lang, args.target_lang)
+
+    src_lang = LANG_MAPPING.get(src_lang_code, src_lang_code)
+    target_lang = LANG_MAPPING.get(target_lang_code, target_lang_code)
 
     Logger.info(f"Source language: {src_lang}, Target language: {target_lang}")
     Logger.info(f"Processing file: {os.path.basename(args.file_path)}")
@@ -1514,11 +1520,11 @@ if __name__ == "__main__":
             file_path=args.file_path,
             temp_content_dir=temp_content_dir,
             final_md_file_save_dir=final_md_file_save_dir,
-            steps=args.steps.split(","),
+            steps=steps.split(","),
             src_lang=src_lang,
             target_lang=target_lang,
         )
-        step_names = [s.strip() for s in args.steps.split(",")]
+        step_names = [s.strip() for s in steps.split(",")]
         result = {
             "status": "success",
             "output_file": md_file_path,

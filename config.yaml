@@ -7,6 +7,11 @@ cache_data_dir: ~/.cache/llm_cache
 
 parser_config_file_path: ./magic-pdf.json
 asset_save_dir: ~/obsidian/attachments
+temp_content_dir: ./tmp/parsed_asset
+
+steps: summary,translate,original
+src_lang: en
+target_lang: zh
 
 gen_conf:
     temperature: 0.7
