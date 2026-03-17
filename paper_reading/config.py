@@ -1,4 +1,6 @@
 import os
+import warnings
+from dataclasses import dataclass, field
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
@@ -64,21 +66,6 @@ class _Config(BaseSettings):
     )
     gen_conf: GenerationConf = Field(
         default_factory=GenerationConf, description="Generation configuration."
-    )
-    llm_endpoint: str = Field(
-        default="http://127.0.0.1:11434",
-        description=(
-            "LLM API endpoint URL."
-            " Also reads from env var LLM_ENDPOINT."
-        ),
-    )
-    llm_api_key: str = Field(
-        default="",
-        description=(
-            "LLM API key (empty = Ollama native,"
-            " non-empty = OpenAI-compatible)."
-            " Also reads from env var LLM_API_KEY."
-        ),
     )
     chat_model_name: str = Field(default="llama3", description="chat model name")
     vision_model_name: str = Field(default="llama3", description="vision model name")
@@ -153,21 +140,6 @@ class _Config(BaseSettings):
         nested_model_default_partial_update=True,
     )
 
-    @field_validator("llm_endpoint", mode="after")
-    @classmethod
-    def resolve_endpoint_from_env(cls, v: str) -> str:
-        """Fall back to LLM_ENDPOINT env var when config value is default."""
-        env = os.environ.get("LLM_ENDPOINT", "")
-        return env if env else v
-
-    @field_validator("llm_api_key", mode="after")
-    @classmethod
-    def resolve_api_key_from_env(cls, v: str) -> str:
-        """Fall back to LLM_API_KEY env var when config value is empty."""
-        if not v:
-            v = os.environ.get("LLM_API_KEY", "")
-        return v
-
     @field_validator(
         "cache_data_dir",
         "asset_save_dir",
@@ -203,6 +175,53 @@ class _Config(BaseSettings):
 Config = _Config()  # type: ignore
 
 
+# ---------------------------------------------------------------------------
+# 兼容检查：config.yaml 中仍存在 llm_endpoint / llm_api_key 时打印弃用告警
+# ---------------------------------------------------------------------------
+def _warn_deprecated_yaml_fields() -> None:
+    """检查 config.yaml 中是否残留已迁移到环境变量的字段，打印弃用告警。"""
+    import yaml
+
+    yaml_path = os.path.join(get_project_base_directory(), "config.yaml")
+    if not os.path.exists(yaml_path):
+        return
+    with open(yaml_path, encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    _deprecated = {"llm_endpoint", "llm_api_key"}
+    for key in _deprecated:
+        if key in raw:
+            warnings.warn(
+                f"'{key}' in config.yaml is deprecated and will be ignored. "
+                f"Please set the environment variable '{key.upper()}' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+
+_warn_deprecated_yaml_fields()
+
+
+# ---------------------------------------------------------------------------
+# 从环境变量读取 LLM 连接配置
+# ---------------------------------------------------------------------------
+def get_llm_endpoint() -> str:
+    """从环境变量 LLM_ENDPOINT 读取 LLM API 地址，未设置时抛出异常。"""
+    val = os.environ.get("LLM_ENDPOINT", "")
+    if not val:
+        raise ValueError(
+            "Environment variable LLM_ENDPOINT is not set. "
+            "Please set it to the LLM API endpoint URL, "
+            "e.g. 'http://127.0.0.1:11434' for Ollama "
+            "or 'https://api.openai.com/v1' for OpenAI-compatible APIs."
+        )
+    return val
+
+
+def get_llm_api_key() -> str:
+    """从环境变量 LLM_API_KEY 读取 API Key，未设置时返回空字符串（Ollama 模式）。"""
+    return os.environ.get("LLM_API_KEY", "")
+
+
 class ContentType(StrEnum):
     TEXT = "text"
     AUDIO = "audio"
@@ -235,3 +254,32 @@ class Content(BaseModel):
 
 
 LANG_MAPPING = {"en": "英语", "zh": "中文"}
+
+
+# ---------------------------------------------------------------------------
+# AI Tool / Skill 调用入参与返回值
+# ---------------------------------------------------------------------------
+@dataclass
+class ProcessParams:
+    """每次调用 process() 的独立参数，AI 调用方只需构造此对象。"""
+
+    file_path: str
+    output_dir: str
+    steps: list[str] = field(
+        default_factory=lambda: ["summary", "translate", "original"]
+    )
+    src_lang: str = "en"
+    target_lang: str = "zh"
+    # 以下可选字段为 None 时回退到 Config 中的默认值
+    chat_model_name: str | None = None
+    vision_model_name: str | None = None
+    gen_conf: dict | None = None
+
+
+@dataclass
+class ProcessResult:
+    """process() 的结构化返回值。"""
+
+    output_file: str
+    steps_completed: list[str]
+    elapsed_seconds: float

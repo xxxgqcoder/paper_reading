@@ -17,7 +17,7 @@ import os
 import sys
 import time
 
-from .config import LANG_MAPPING, Config, Step
+from .config import Config, ProcessParams, Step
 from .extract_pages import run_extract_pages
 from .log import Logger
 from .pipeline import process
@@ -68,39 +68,32 @@ def main() -> None:
                 "elapsed_seconds": round(time.time() - begin_ts, 2),
             }
             print(json.dumps(result, ensure_ascii=False))
-            sys.exit(1)
-        sys.exit(0)
+            sys.exit(0)
 
     # process (default)
     if not args.file_path or not args.final_md_file_save_dir:
-        parser.error("process requires --file_path and --final_md_file_save_dir")
-
-    steps = args.steps if args.steps else Config.steps
-    src_lang_code = args.src_lang if args.src_lang else Config.src_lang
-    target_lang_code = args.target_lang if args.target_lang else Config.target_lang
-    final_md_file_save_dir = os.path.realpath(args.final_md_file_save_dir)
-
-    src_lang = LANG_MAPPING.get(src_lang_code, src_lang_code)
-    target_lang = LANG_MAPPING.get(target_lang_code, target_lang_code)
-
-    Logger.info(f"Source language: {src_lang}, Target language: {target_lang}")
-    Logger.info(f"Processing file: {os.path.basename(args.file_path)}")
-
-    begin_ts = time.time()
-    try:
-        md_file_path = process(
-            file_path=args.file_path,
-            final_md_file_save_dir=final_md_file_save_dir,
-            steps=steps.split(","),
-            src_lang=src_lang,
-            target_lang=target_lang,
+        parser.error(
+            "process requires --file_path and --final_md_file_save_dir"
         )
-        step_names = [s.strip() for s in steps.split(",")]
+
+    steps_raw = args.steps if args.steps else Config.steps
+    params = ProcessParams(
+        file_path=args.file_path,
+        output_dir=os.path.realpath(args.final_md_file_save_dir),
+        steps=[s.strip() for s in steps_raw.split(",")],
+        src_lang=args.src_lang or Config.src_lang,
+        target_lang=args.target_lang or Config.target_lang,
+    )
+
+    Logger.info(f"Processing file: {os.path.basename(params.file_path)}")
+
+    try:
+        proc_result = process(params)
         result = {
             "status": "success",
-            "output_file": md_file_path,
-            "steps_completed": step_names,
-            "elapsed_seconds": round(time.time() - begin_ts, 2),
+            "output_file": proc_result.output_file,
+            "steps_completed": proc_result.steps_completed,
+            "elapsed_seconds": proc_result.elapsed_seconds,
         }
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
@@ -108,7 +101,6 @@ def main() -> None:
         result = {
             "status": "error",
             "error": str(e),
-            "elapsed_seconds": round(time.time() - begin_ts, 2),
         }
         print(json.dumps(result, ensure_ascii=False))
         sys.exit(1)

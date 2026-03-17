@@ -5,7 +5,7 @@
 ## 功能特性
 
 - **PDF 解析**：MinerU 解析版面，提取文本、图像与表格。
-- **LLM 集成**：支持 Ollama（无需 API Key）或配置 `llm_api_key` 使用 OpenAI 兼容接口。
+- **LLM 集成**：支持 Ollama（无需 API Key）或通过环境变量 `LLM_API_KEY` 使用 OpenAI 兼容接口。
 - **可配置**：模型、路径、生成参数、提示词模板等均在 `config.yaml` 中配置。
 - **缓存**：中间结果缓存，同一文件再次处理更快。
 - **步骤可选**：可只跑 `original`、`summary`、`translate` 或其组合。
@@ -27,8 +27,19 @@ uv pip install -e .
 
 ### 2. 配置 LLM
 
-- **Ollama**：本地启动 Ollama，并拉取 `config.yaml` 中配置的对话模型与视觉模型。
-- **OpenAI 兼容**：在 `config.yaml` 中设置 `llm_endpoint` 与 `llm_api_key`。
+LLM 连接信息通过**环境变量**配置（不再写入 `config.yaml`）：
+
+```sh
+# 必须设置 — LLM API 地址
+export LLM_ENDPOINT="http://127.0.0.1:11434"        # Ollama 本地
+# export LLM_ENDPOINT="https://api.openai.com/v1"   # OpenAI 兼容
+
+# 可选 — API Key（留空则使用 Ollama 原生协议）
+export LLM_API_KEY="sk-xxx"
+```
+
+- **Ollama**：本地启动 Ollama，设置 `LLM_ENDPOINT`，无需设置 `LLM_API_KEY`。
+- **OpenAI 兼容**：设置 `LLM_ENDPOINT` 与 `LLM_API_KEY` 环境变量。
 
 ### 3. MinerU 解析环境
 
@@ -104,9 +115,9 @@ python process_pdf.py \
 
 ### LLM 与模型
 
+LLM 连接信息通过环境变量配置（见 [快速开始 / 配置 LLM](#2-配置-llm)），模型名称在 `config.yaml` 中配置：
+
 ```yaml
-llm_endpoint: http://127.0.0.1:11434   # Ollama 或 OpenAI 兼容 API 地址
-llm_api_key: ""                        # 留空用 Ollama；填写则按 OpenAI 兼容方式调用
 chat_model_name: qwen3:30b-a3b-thinking-2507-q4_K_M
 vision_model_name: qwen2.5vl:7b
 max_context_token_num: 60000

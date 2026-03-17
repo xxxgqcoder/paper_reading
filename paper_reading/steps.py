@@ -1,9 +1,10 @@
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import TextIOWrapper
+from typing import Any
 
-from .config import Config, Content, ContentType, Step
+from .config import Content, ContentType, Step
 from .llm import llm_chat
 from .log import Logger
 from .utils import (
@@ -22,6 +23,14 @@ class StepContext:
     content_list: list[Content]
     src_lang: str
     target_lang: str
+    # 以下字段由 pipeline.process() 从 Config / ProcessParams 合并后注入
+    chat_model_name: str = ""
+    vision_model_name: str = ""
+    gen_conf: dict[str, Any] = field(default_factory=dict)
+    prompt_translate: str = ""
+    prompt_summary: str = ""
+    max_context_token_num: int = 1024 * 16
+    asset_save_dir: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +64,9 @@ def save_parsed_content(ctx: StepContext) -> None:
 # translate
 
 
-def translate_text_content(text: str, src_lang: str, target_lang: str) -> str:
+def translate_text_content(
+    text: str, src_lang: str, target_lang: str, ctx: StepContext
+) -> str:
     if is_empty(text):
         return ""
 
@@ -65,12 +76,12 @@ def translate_text_content(text: str, src_lang: str, target_lang: str) -> str:
         Logger.info(f"Processing segment {i}")
         segment = text[i : i + max_char_len]
 
-        formatted_prompt = Config.prompt_translate.format(
+        formatted_prompt = ctx.prompt_translate.format(
             src_lang=src_lang,
             target_lang=target_lang,
             content=segment,
         )
-        ret = llm_chat(prompt=formatted_prompt, gen_conf=Config.gen_conf.model_dump())
+        ret = llm_chat(prompt=formatted_prompt, gen_conf=ctx.gen_conf)
         if not ret:
             ret = "[LLM error]"
 
@@ -102,11 +113,16 @@ def translate_content(ctx: StepContext) -> None:
             )
             if content_list[i].content_url:
                 img_name = os.path.basename(content_list[i].content_url)
-                img_path = relative_md_image_path(Config.asset_save_dir, img_name)
+                img_path = relative_md_image_path(
+                    ctx.asset_save_dir, img_name
+                )
                 ctx.md_writer.write(img_path + line_breaker)
 
             translated = translate_text_content(
-                content_list[i].extra_description, src_lang, target_lang
+                content_list[i].extra_description,
+                src_lang,
+                target_lang,
+                ctx,
             )
             Logger.info(f"Translated content:\n{translated}")
             ctx.md_writer.write(translated + line_breaker)
@@ -127,7 +143,9 @@ def translate_content(ctx: StepContext) -> None:
         content = "\n".join([content.content for content in content_list[i:j]])
         content = ensure_utf(content)
         Logger.info(f"Content to translate:\n{content}")
-        translated = translate_text_content(content, src_lang, target_lang)
+        translated = translate_text_content(
+            content, src_lang, target_lang, ctx
+        )
         Logger.info(f"Translated content:\n{translated}")
         ctx.md_writer.write(translated + line_breaker)
 
@@ -157,8 +175,8 @@ def summary_content(ctx: StepContext) -> None:
     Logger.info(f"Full content length: {len(full_content)}")
     token_num, _ = estimate_token_num(full_content)
     Logger.info(f"Estimated full content token num: {token_num}")
-    if token_num > Config.max_context_token_num:
-        ratio = float(Config.max_context_token_num) / token_num
+    if token_num > ctx.max_context_token_num:
+        ratio = float(ctx.max_context_token_num) / token_num
         Logger.info(
             f"Truncate full content by ratio: {ratio},"
             f" original length: {len(full_content)}"
@@ -167,14 +185,16 @@ def summary_content(ctx: StepContext) -> None:
 
     full_content = ensure_utf(full_content)
 
-    formatted_prompt = Config.prompt_summary.format(
+    formatted_prompt = ctx.prompt_summary.format(
         src_lang=src_lang,
         target_lang=target_lang,
         content=full_content,
     )
     Logger.info(f"Formatted prompt:\n{formatted_prompt}")
 
-    summary = llm_chat(prompt=formatted_prompt, gen_conf=Config.gen_conf.model_dump())
+    summary = llm_chat(
+        prompt=formatted_prompt, gen_conf=ctx.gen_conf
+    )
     if not summary:
         summary = "[LLM error]"
     Logger.info(f"Content summary:\n{summary}")

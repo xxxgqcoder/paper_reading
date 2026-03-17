@@ -3,7 +3,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .config import Config
+from .config import Config, get_llm_api_key, get_llm_endpoint
 from .log import Logger
 from .utils import cache_it, hash64, time_it
 
@@ -173,22 +173,27 @@ class OpenAIBackend(LLMBackend):
         return None
 
 
-_llm_backend: LLMBackend | None = None
+_llm_backends: dict[tuple[str, str], LLMBackend] = {}
 
 
 def _get_llm_backend() -> LLMBackend:
-    global _llm_backend
-    if _llm_backend is None:
-        if Config.llm_api_key:
-            _llm_backend = OpenAIBackend(
-                api_key=Config.llm_api_key,
-                base_url=Config.llm_endpoint,
+    """按 (endpoint, api_key) 缓存 backend 实例，支持多配置场景。"""
+    api_key = get_llm_api_key()
+    endpoint = get_llm_endpoint()
+    cache_key = (endpoint, api_key)
+    if cache_key not in _llm_backends:
+        if api_key:
+            _llm_backends[cache_key] = OpenAIBackend(
+                api_key=api_key,
+                base_url=endpoint,
             )
-            Logger.info(f"Using OpenAI-compatible backend: {Config.llm_endpoint}")
+            Logger.info(
+                f"Using OpenAI-compatible backend: {endpoint}"
+            )
         else:
-            _llm_backend = OllamaBackend(host=Config.llm_endpoint)
-            Logger.info(f"Using Ollama backend: {Config.llm_endpoint}")
-    return _llm_backend
+            _llm_backends[cache_key] = OllamaBackend(host=endpoint)
+            Logger.info(f"Using Ollama backend: {endpoint}")
+    return _llm_backends[cache_key]
 
 
 def _strip_thinking_tags(text: str) -> str:
@@ -204,7 +209,7 @@ def _strip_thinking_tags(text: str) -> str:
 @cache_it(
     key_generator=lambda prompt, gen_conf: (
         "llm_chat::"
-        + hash64(f"{Config.llm_endpoint}::{Config.chat_model_name}".encode())
+        + hash64(f"{get_llm_endpoint()}::{Config.chat_model_name}".encode())
         + "::prompt_hash::"
         + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
     )
@@ -229,7 +234,7 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
 @cache_it(
     key_generator=lambda prompt, image_content, gen_conf: (
         "image_chat::"
-        + hash64(f"{Config.llm_endpoint}::{Config.vision_model_name}".encode())
+        + hash64(f"{get_llm_endpoint()}::{Config.vision_model_name}".encode())
         + "::prompt_hash::"
         + hash64(
             (prompt + image_content + json.dumps(gen_conf, default=str)).encode(
