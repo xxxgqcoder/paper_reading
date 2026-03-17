@@ -26,7 +26,7 @@ def parse_pdf(
     return content_list
 
 
-def process(params: ProcessParams) -> ProcessResult:
+async def process(params: ProcessParams) -> ProcessResult:
     """处理 PDF 文件并输出 Markdown。
 
     这是面向 AI tool/skill 的主入口，所有运行时参数通过 ProcessParams 传入。
@@ -85,7 +85,7 @@ def process(params: ProcessParams) -> ProcessResult:
             if step not in enabled_steps:
                 continue
             Logger.info(f"Processing step: {step.value}")
-            STEP_REGISTRY[step](ctx)
+            await STEP_REGISTRY[step](ctx)
 
     elapsed = round(time.time() - begin_ts, 2)
     Logger.info(f"Parsed markdown saved to {md_file_path}")
