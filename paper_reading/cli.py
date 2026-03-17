@@ -12,6 +12,7 @@ Usage (extract-pages):
 """
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -88,7 +89,7 @@ def main() -> None:
     Logger.info(f"Processing file: {os.path.basename(params.file_path)}")
 
     try:
-        proc_result = process(params)
+        proc_result = asyncio.run(process(params))
         result = {
             "status": "success",
             "output_file": proc_result.output_file,
