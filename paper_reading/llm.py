@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from abc import ABC, abstractmethod
@@ -6,6 +7,10 @@ from typing import Any
 from .config import Config, get_llm_api_key, get_llm_endpoint
 from .log import Logger
 from .utils import cache_it, hash64, time_it
+
+# Ollama 本地推理并发量低，API 服务可并发更多
+_CONCURRENCY_OLLAMA = 1
+_CONCURRENCY_API = 10
 
 
 class LLMBackend(ABC):
@@ -174,6 +179,7 @@ class OpenAIBackend(LLMBackend):
 
 
 _llm_backends: dict[tuple[str, str], LLMBackend] = {}
+_llm_semaphores: dict[tuple[str, str], asyncio.Semaphore] = {}
 
 
 def _get_llm_backend() -> LLMBackend:
@@ -187,13 +193,29 @@ def _get_llm_backend() -> LLMBackend:
                 api_key=api_key,
                 base_url=endpoint,
             )
+            _llm_semaphores[cache_key] = asyncio.Semaphore(
+                _CONCURRENCY_API
+            )
             Logger.info(
-                f"Using OpenAI-compatible backend: {endpoint}"
+                f"Using OpenAI-compatible backend: {endpoint},"
+                f" max_concurrency={_CONCURRENCY_API}"
             )
         else:
             _llm_backends[cache_key] = OllamaBackend(host=endpoint)
-            Logger.info(f"Using Ollama backend: {endpoint}")
+            _llm_semaphores[cache_key] = asyncio.Semaphore(
+                _CONCURRENCY_OLLAMA
+            )
+            Logger.info(
+                f"Using Ollama backend: {endpoint},"
+                f" max_concurrency={_CONCURRENCY_OLLAMA}"
+            )
     return _llm_backends[cache_key]
+
+
+def _get_llm_semaphore() -> asyncio.Semaphore:
+    """获取当前 backend 对应的并发信号量。"""
+    cache_key = (get_llm_endpoint(), get_llm_api_key())
+    return _llm_semaphores[cache_key]
 
 
 def _strip_thinking_tags(text: str) -> str:
@@ -215,16 +237,19 @@ def _strip_thinking_tags(text: str) -> str:
     )
 )
 async def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
+    backend = _get_llm_backend()
+    semaphore = _get_llm_semaphore()
     messages = [{"role": "user", "content": prompt}]
-    try:
-        ans = await _get_llm_backend().chat(
-            model=Config.chat_model_name,
-            messages=messages,
-            gen_conf=gen_conf,
-        )
-    except Exception as e:
-        Logger.error(f"LLM chat exception: {e}")
-        return None
+    async with semaphore:
+        try:
+            ans = await backend.chat(
+                model=Config.chat_model_name,
+                messages=messages,
+                gen_conf=gen_conf,
+            )
+        except Exception as e:
+            Logger.error(f"LLM chat exception: {e}")
+            return None
     if not ans:
         return None
     return _strip_thinking_tags(ans)
@@ -248,13 +273,16 @@ async def image_chat(
     image_content: str,
     gen_conf: dict[str, Any],
 ) -> str | None:
-    try:
-        return await _get_llm_backend().vision_chat(
-            model=Config.vision_model_name,
-            prompt=prompt,
-            image_b64=image_content,
-            gen_conf=gen_conf,
-        )
-    except Exception as e:
-        Logger.error(f"Vision model chat exception: {e}")
-        return None
+    backend = _get_llm_backend()
+    semaphore = _get_llm_semaphore()
+    async with semaphore:
+        try:
+            return await backend.vision_chat(
+                model=Config.vision_model_name,
+                prompt=prompt,
+                image_b64=image_content,
+                gen_conf=gen_conf,
+            )
+        except Exception as e:
+            Logger.error(f"Vision model chat exception: {e}")
+            return None
