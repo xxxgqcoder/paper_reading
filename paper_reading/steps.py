@@ -1,5 +1,6 @@
+import asyncio
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from io import TextIOWrapper
 from typing import Any
@@ -37,7 +38,7 @@ class StepContext:
 # original
 
 
-def save_parsed_content(ctx: StepContext) -> None:
+async def save_parsed_content(ctx: StepContext) -> None:
     ctx.md_writer.write(
         "# " + "=" * 4 + "  Original Content  " + "=" * 4 + line_breaker
     )
@@ -64,34 +65,36 @@ def save_parsed_content(ctx: StepContext) -> None:
 # translate
 
 
-def translate_text_content(
+async def translate_text_content(
     text: str, src_lang: str, target_lang: str, ctx: StepContext
 ) -> str:
     if is_empty(text):
         return ""
 
     max_char_len = 16 * 1024
-    full_result = ""
-    for i in range(0, len(text), max_char_len):
-        Logger.info(f"Processing segment {i}")
-        segment = text[i : i + max_char_len]
+    segments = [text[i : i + max_char_len] for i in range(0, len(text), max_char_len)]
 
+    async def _translate_segment(idx: int, segment: str) -> str:
+        Logger.info(f"Processing segment {idx}")
         formatted_prompt = ctx.prompt_translate.format(
             src_lang=src_lang,
             target_lang=target_lang,
             content=segment,
         )
-        ret = llm_chat(prompt=formatted_prompt, gen_conf=ctx.gen_conf)
+        ret = await llm_chat(prompt=formatted_prompt, gen_conf=ctx.gen_conf)
         if not ret:
             ret = "[LLM error]"
+        return ret
 
-        full_result += ret
-
-    return full_result
+    # 并发翻译所有分段
+    results = await asyncio.gather(
+        *[_translate_segment(i, seg) for i, seg in enumerate(segments)]
+    )
+    return "".join(results)
 
 
 @time_it(prefix="translate_content")
-def translate_content(ctx: StepContext) -> None:
+async def translate_content(ctx: StepContext) -> None:
     """Translate contents."""
     content_list, src_lang, target_lang = (
         ctx.content_list,
@@ -104,30 +107,18 @@ def translate_content(ctx: StepContext) -> None:
         "# " + "=" * 4 + "  Translated Content  " + "=" * 4 + line_breaker
     )
 
+    # 收集所有翻译任务，按原始顺序分组
+    groups: list[tuple[str, list[int], str | None]] = []  # (type, indices, img_path)
     i = 0
     max_content_num = 20
     while i < len(content_list):
         if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
-            Logger.info(
-                f"Translating content {i}, type: {content_list[i].content_type}"
-            )
+            img_path = None
             if content_list[i].content_url:
                 img_name = os.path.basename(content_list[i].content_url)
-                img_path = relative_md_image_path(
-                    ctx.asset_save_dir, img_name
-                )
-                ctx.md_writer.write(img_path + line_breaker)
-
-            translated = translate_text_content(
-                content_list[i].extra_description,
-                src_lang,
-                target_lang,
-                ctx,
-            )
-            Logger.info(f"Translated content:\n{translated}")
-            ctx.md_writer.write(translated + line_breaker)
-
-            i = i + 1
+                img_path = relative_md_image_path(ctx.asset_save_dir, img_name)
+            groups.append(("media", [i], img_path))
+            i += 1
             continue
 
         j = i + 1
@@ -137,20 +128,43 @@ def translate_content(ctx: StepContext) -> None:
             and content_list[j].content_type == ContentType.TEXT
         ):
             j += 1
-        Logger.info(
-            f"Translating content {i} to {j - 1}, type: {content_list[i].content_type}"
-        )
-        content = "\n".join([content.content for content in content_list[i:j]])
-        content = ensure_utf(content)
-        Logger.info(f"Content to translate:\n{content}")
-        translated = translate_text_content(
-            content, src_lang, target_lang, ctx
-        )
-        Logger.info(f"Translated content:\n{translated}")
-        ctx.md_writer.write(translated + line_breaker)
-
+        groups.append(("text", list(range(i, j)), None))
         i = j
 
+    # 并发执行所有分组的翻译
+    async def _translate_group(
+        group: tuple[str, list[int], str | None],
+    ) -> str:
+        gtype, indices, img_path = group
+        result = ""
+        if gtype == "media":
+            idx = indices[0]
+            Logger.info(f"Translating content {idx}, type: {content_list[idx].content_type}")
+            if img_path:
+                result += img_path + line_breaker
+            translated = await translate_text_content(
+                content_list[idx].extra_description, src_lang, target_lang, ctx
+            )
+            Logger.info(f"Translated content:\n{translated}")
+            result += translated + line_breaker
+        else:
+            Logger.info(
+                f"Translating content {indices[0]} to {indices[-1]},"
+                f" type: {content_list[indices[0]].content_type}"
+            )
+            content = "\n".join([content_list[idx].content for idx in indices])
+            content = ensure_utf(content)
+            Logger.info(f"Content to translate:\n{content}")
+            translated = await translate_text_content(content, src_lang, target_lang, ctx)
+            Logger.info(f"Translated content:\n{translated}")
+            result += translated + line_breaker
+        return result
+
+    translated_parts = await asyncio.gather(*[_translate_group(g) for g in groups])
+
+    # 按原始顺序写入
+    for part in translated_parts:
+        ctx.md_writer.write(part)
     ctx.md_writer.flush()
 
 
@@ -159,7 +173,7 @@ def translate_content(ctx: StepContext) -> None:
 
 
 @time_it(prefix="summary_content")
-def summary_content(ctx: StepContext) -> None:
+async def summary_content(ctx: StepContext) -> None:
     src_lang, target_lang = ctx.src_lang, ctx.target_lang
     Logger.info(f"Summary_content, src_lang={src_lang}, target_lang={target_lang}")
 
@@ -192,7 +206,7 @@ def summary_content(ctx: StepContext) -> None:
     )
     Logger.info(f"Formatted prompt:\n{formatted_prompt}")
 
-    summary = llm_chat(
+    summary = await llm_chat(
         prompt=formatted_prompt, gen_conf=ctx.gen_conf
     )
     if not summary:
@@ -211,7 +225,7 @@ def summary_content(ctx: StepContext) -> None:
 # registry
 
 
-STEP_REGISTRY: dict[Step, Callable[[StepContext], None]] = {
+STEP_REGISTRY: dict[Step, Callable[[StepContext], Coroutine[Any, Any, None]]] = {
     Step.ORIGINAL: save_parsed_content,
     Step.SUMMARY: summary_content,
     Step.TRANSLATE: translate_content,
