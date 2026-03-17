@@ -139,7 +139,9 @@ async def translate_content(ctx: StepContext) -> None:
         result = ""
         if gtype == "media":
             idx = indices[0]
-            Logger.info(f"Translating content {idx}, type: {content_list[idx].content_type}")
+            Logger.info(
+                f"Translating content {idx}, type: {content_list[idx].content_type}"
+            )
             if img_path:
                 result += img_path + line_breaker
             translated = await translate_text_content(
@@ -155,7 +157,9 @@ async def translate_content(ctx: StepContext) -> None:
             content = "\n".join([content_list[idx].content for idx in indices])
             content = ensure_utf(content)
             Logger.info(f"Content to translate:\n{content}")
-            translated = await translate_text_content(content, src_lang, target_lang, ctx)
+            translated = await translate_text_content(
+                content, src_lang, target_lang, ctx
+            )
             Logger.info(f"Translated content:\n{translated}")
             result += translated + line_breaker
         return result
