@@ -12,7 +12,7 @@ class LLMBackend(ABC):
     """Abstract base class for LLM API backends."""
 
     @abstractmethod
-    def chat(
+    async def chat(
         self,
         model: str,
         messages: list[dict[str, Any]],
@@ -20,7 +20,7 @@ class LLMBackend(ABC):
     ) -> str | None: ...
 
     @abstractmethod
-    def vision_chat(
+    async def vision_chat(
         self,
         model: str,
         prompt: str,
@@ -41,9 +41,9 @@ class OllamaBackend(LLMBackend):
     }
 
     def __init__(self, host: str, timeout: int = 15 * 60):
-        from ollama import Client as OllamaClient
+        from ollama import AsyncClient as OllamaAsyncClient
 
-        self._client = OllamaClient(host=host, timeout=timeout)
+        self._client = OllamaAsyncClient(host=host, timeout=timeout)
 
     def _build_options(self, gen_conf: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -66,8 +66,8 @@ class OllamaBackend(LLMBackend):
                 f"speed={gen_tps:.1f} tok/s, total={total_s:.1f}s"
             )
 
-    def chat(self, model, messages, gen_conf):
-        resp = self._client.chat(
+    async def chat(self, model, messages, gen_conf):
+        resp = await self._client.chat(
             model=model,
             messages=messages,
             options=self._build_options(gen_conf),
@@ -76,8 +76,8 @@ class OllamaBackend(LLMBackend):
         self._log_token_stats(resp)
         return resp["message"]["content"] if resp else None
 
-    def vision_chat(self, model, prompt, image_b64, gen_conf):
-        resp = self._client.chat(
+    async def vision_chat(self, model, prompt, image_b64, gen_conf):
+        resp = await self._client.chat(
             model=model,
             messages=[{"role": "user", "content": prompt, "images": [image_b64]}],
             options=self._build_options(gen_conf),
@@ -89,14 +89,14 @@ class OllamaBackend(LLMBackend):
 class OpenAIBackend(LLMBackend):
     def __init__(self, api_key: str, base_url: str = "", timeout: int = 15 * 60):
         try:
-            from openai import OpenAI
+            from openai import AsyncOpenAI
         except ImportError as exc:
             raise ImportError(
                 "openai package required for OpenAI backend. "
                 "Install with: pip install openai"
             ) from exc
 
-        self._client = OpenAI(
+        self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             timeout=timeout,
@@ -136,9 +136,9 @@ class OpenAIBackend(LLMBackend):
             f"speed={gen_tps:.1f} tok/s, elapsed={elapsed:.1f}s"
         )
 
-    def chat(self, model, messages, gen_conf):
+    async def chat(self, model, messages, gen_conf):
         t0 = time.monotonic()
-        resp = self._client.chat.completions.create(
+        resp = await self._client.chat.completions.create(
             model=model,
             messages=messages,
             **self._build_params(gen_conf),
@@ -148,7 +148,7 @@ class OpenAIBackend(LLMBackend):
             return resp.choices[0].message.content
         return None
 
-    def vision_chat(self, model, prompt, image_b64, gen_conf):
+    async def vision_chat(self, model, prompt, image_b64, gen_conf):
         messages: list[dict[str, Any]] = [
             {
                 "role": "user",
@@ -162,7 +162,7 @@ class OpenAIBackend(LLMBackend):
             }
         ]
         t0 = time.monotonic()
-        resp = self._client.chat.completions.create(
+        resp = await self._client.chat.completions.create(
             model=model,
             messages=messages,
             **self._build_params(gen_conf),
@@ -214,10 +214,10 @@ def _strip_thinking_tags(text: str) -> str:
         + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
     )
 )
-def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
+async def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
     messages = [{"role": "user", "content": prompt}]
     try:
-        ans = _get_llm_backend().chat(
+        ans = await _get_llm_backend().chat(
             model=Config.chat_model_name,
             messages=messages,
             gen_conf=gen_conf,
@@ -243,13 +243,13 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
         )
     )
 )
-def image_chat(
+async def image_chat(
     prompt: str,
     image_content: str,
     gen_conf: dict[str, Any],
 ) -> str | None:
     try:
-        return _get_llm_backend().vision_chat(
+        return await _get_llm_backend().vision_chat(
             model=Config.vision_model_name,
             prompt=prompt,
             image_b64=image_content,
