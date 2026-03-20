@@ -81,7 +81,11 @@ async def translate_text_content(
             target_lang=target_lang,
             content=segment,
         )
-        ret = await llm_chat(prompt=formatted_prompt, gen_conf=ctx.gen_conf)
+        ret = await llm_chat(
+            prompt=formatted_prompt,
+            gen_conf=ctx.gen_conf,
+            model=ctx.chat_model_name,
+        )
         if not ret:
             ret = "[LLM error]"
         return ret
@@ -211,7 +215,9 @@ async def summary_content(ctx: StepContext) -> None:
     Logger.info(f"Formatted prompt:\n{formatted_prompt}")
 
     summary = await llm_chat(
-        prompt=formatted_prompt, gen_conf=ctx.gen_conf
+        prompt=formatted_prompt,
+        gen_conf=ctx.gen_conf,
+        model=ctx.chat_model_name,
     )
     if not summary:
         summary = "[LLM error]"

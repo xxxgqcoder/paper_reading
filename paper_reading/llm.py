@@ -12,6 +12,52 @@ from .utils import cache_it, hash64, time_it
 _CONCURRENCY_OLLAMA = 1
 _CONCURRENCY_API = 10
 
+# 兼容将本地 / Ollama 风格模型名映射为 OpenRouter 官方模型 ID
+_OPENROUTER_MODEL_ALIASES = {
+    "qwen3.5-flash": "qwen/qwen3.5-flash-02-23",
+    "qwen2.5vl:7b": "qwen/qwen-2.5-vl-7b-instruct",
+    "qwen2.5-vl:7b": "qwen/qwen-2.5-vl-7b-instruct",
+}
+_LOGGED_MODEL_RESOLUTIONS: set[tuple[str, str]] = set()
+_LOGGED_MODEL_WARNINGS: set[tuple[str, str]] = set()
+
+
+def _is_openrouter_endpoint(endpoint: str) -> bool:
+    return "openrouter.ai" in endpoint
+
+
+def resolve_model_name(model: str, endpoint: str | None = None) -> str:
+    endpoint = endpoint or get_llm_endpoint()
+    if not _is_openrouter_endpoint(endpoint):
+        return model
+
+    resolved = _OPENROUTER_MODEL_ALIASES.get(model, model)
+    log_key = (endpoint, model)
+
+    if resolved != model and log_key not in _LOGGED_MODEL_RESOLUTIONS:
+        Logger.info(f"Resolved model alias for OpenRouter: {model} -> {resolved}")
+        _LOGGED_MODEL_RESOLUTIONS.add(log_key)
+    elif (
+        resolved == model
+        and "/" not in model
+        and log_key not in _LOGGED_MODEL_WARNINGS
+    ):
+        Logger.warning(
+            f"Model name '{model}' may be invalid for OpenRouter. "
+            "Prefer provider-prefixed IDs such as 'qwen/qwen3-32b'."
+        )
+        _LOGGED_MODEL_WARNINGS.add(log_key)
+
+    return resolved
+
+
+def _get_chat_model_name(model: str | None = None) -> str:
+    return resolve_model_name(model or Config.chat_model_name)
+
+
+def _get_vision_model_name(model: str | None = None) -> str:
+    return resolve_model_name(model or Config.vision_model_name)
+
 
 class LLMBackend(ABC):
     """Abstract base class for LLM API backends."""
@@ -229,21 +275,26 @@ def _strip_thinking_tags(text: str) -> str:
 
 @time_it(prefix="llm chat")
 @cache_it(
-    key_generator=lambda prompt, gen_conf: (
+    key_generator=lambda prompt, gen_conf, model=None: (
         "llm_chat::"
-        + hash64(f"{get_llm_endpoint()}::{Config.chat_model_name}".encode())
+        + hash64(f"{get_llm_endpoint()}::{_get_chat_model_name(model)}".encode())
         + "::prompt_hash::"
         + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
     )
 )
-async def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
+async def llm_chat(
+    prompt: str,
+    gen_conf: dict[str, Any],
+    model: str | None = None,
+) -> str | None:
     backend = _get_llm_backend()
     semaphore = _get_llm_semaphore()
     messages = [{"role": "user", "content": prompt}]
+    chat_model_name = _get_chat_model_name(model)
     async with semaphore:
         try:
             ans = await backend.chat(
-                model=Config.chat_model_name,
+                model=chat_model_name,
                 messages=messages,
                 gen_conf=gen_conf,
             )
@@ -257,9 +308,9 @@ async def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
 
 @time_it(prefix="image chat")
 @cache_it(
-    key_generator=lambda prompt, image_content, gen_conf: (
+    key_generator=lambda prompt, image_content, gen_conf, model=None: (
         "image_chat::"
-        + hash64(f"{get_llm_endpoint()}::{Config.vision_model_name}".encode())
+        + hash64(f"{get_llm_endpoint()}::{_get_vision_model_name(model)}".encode())
         + "::prompt_hash::"
         + hash64(
             (prompt + image_content + json.dumps(gen_conf, default=str)).encode(
@@ -272,13 +323,15 @@ async def image_chat(
     prompt: str,
     image_content: str,
     gen_conf: dict[str, Any],
+    model: str | None = None,
 ) -> str | None:
     backend = _get_llm_backend()
     semaphore = _get_llm_semaphore()
+    vision_model_name = _get_vision_model_name(model)
     async with semaphore:
         try:
             return await backend.vision_chat(
-                model=Config.vision_model_name,
+                model=vision_model_name,
                 prompt=prompt,
                 image_b64=image_content,
                 gen_conf=gen_conf,

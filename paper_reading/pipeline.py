@@ -46,7 +46,7 @@ async def process(params: ProcessParams) -> ProcessResult:
     target_lang_display = LANG_MAPPING.get(params.target_lang, params.target_lang)
 
     enabled_steps = parse_steps(params.steps)
-    step_names = [s.value for s in enabled_steps]
+    step_names = [s.value for s in STEP_OUTPUT_ORDER if s in enabled_steps]
     Logger.info(f"Processing started, enabled steps: {step_names}")
 
     model_dir = ensure_mineru_model()

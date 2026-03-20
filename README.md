@@ -152,3 +152,49 @@ gen_conf:
 ### 页面提取
 
 `extract-pages` 的输入 PDF 与页码在 `config.yaml` 的 `extract_pages` 中配置，无需单独文件。
+
+## Skill 发布方案存档
+
+当前仓库先**记录方案，不立即改造项目结构**。
+
+如果后续要把本项目封装为可被不同 Agent 调用的通用 Skill，优先采用 **`.agents/skills/`** 目录约定，而不是绑定某个单一客户端的专属目录。
+
+### 选型结论
+
+- **采用方案**：`.agents/skills/`
+- **目标**：尽量兼容多种支持 Agent Skills 的客户端，而不只面向 Copilot
+- **当前状态**：仅在 README 中存档该决策，暂不新增 Skill 文件，暂不改造 CLI / Python API / 项目目录
+
+### 选择原因
+
+- `.agents/skills/` 是更通用的跨客户端约定，适合将 Skill 作为可复用能力分发给不同 Agent。
+- 相比 `.github/skills/`（偏 Copilot）或 `.claude/skills/`（偏 Claude Code），该路径更利于后续迁移和复用。
+- Skill 本质上是由 `SKILL.md`、可选脚本、参考资料组成的目录结构，便于版本控制、复制和分发。
+
+### 后续落地时的目标结构
+
+后续如果正式接入，建议优先采用如下结构：
+
+```text
+.agents/
+└── skills/
+    ├── process-pdf/
+    │   ├── SKILL.md
+    │   ├── scripts/
+    │   └── references/
+    └── extract-pages/
+        └── SKILL.md
+```
+
+### 发布与安装方式
+
+未来如果需要对外分享，建议将 Skill 单独放在一个公开仓库中，用户通过以下两种方式安装：
+
+1. **项目级安装**：复制到某个项目的 `.agents/skills/` 下，仅该项目可用。
+2. **用户级安装**：复制到 `~/.agents/skills/` 下，当前用户的多个项目可复用。
+
+### 兼容性说明
+
+- 该方案面向 **通用 Agent Skills** 思路设计。
+- 若未来需要兼容某些客户端的历史路径，可再按需补充镜像目录（如 `.github/skills/` 或 `.claude/skills/`）。
+- 当前 README 中的这段内容仅作为发布方案存档，**不表示仓库已经完成 Skill 化改造**。

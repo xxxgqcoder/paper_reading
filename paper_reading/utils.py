@@ -55,7 +55,9 @@ def estimate_token_num(text: str) -> tuple[int, list[str]]:
         return 0, []
 
     encoding = tiktoken.get_encoding("cl100k_base")
-    tokens = encoding.encode(text)
+    # 将论文正文中形如 <|endoftext|> 的字面文本按普通文本处理，
+    # 避免 tiktoken 将其识别为受限特殊 token 后直接抛错。
+    tokens = encoding.encode(text, disallowed_special=())
     token_strings = [
         encoding.decode_single_token_bytes(token).decode("utf-8", "replace")
         for token in tokens
