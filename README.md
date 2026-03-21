@@ -6,7 +6,7 @@
 
 - **PDF 解析**：MinerU 解析版面，提取文本、图像与表格。
 - **LLM 集成**：支持 Ollama（无需 API Key）或通过环境变量 `LLM_API_KEY` 使用 OpenAI 兼容接口。
-- **可配置**：模型、路径、生成参数、提示词模板等均在 `config.yaml` 中配置。
+- **可配置**：模型、路径、生成参数等全部通过 CLI 参数或环境变量配置。
 - **缓存**：中间结果缓存，同一文件再次处理更快。
 - **步骤可选**：可只跑 `original`、`summary`、`translate` 或其组合。
 
@@ -69,20 +69,6 @@ paper-reading extract-pages \
     --pages 1-93 "100,105-110"
 ```
 
-或在 `config.yaml` 中配置后执行（适用于项目内开发）：
-
-```yaml
-extract_pages:
-    input_pdf: ~/path/to/input.pdf
-    pages:
-        - 1-93
-        - 100,105-110
-```
-
-```sh
-paper-reading extract-pages
-```
-
 或直接通过 Python API（见下方 [Agent Skill](#agent-skill) 章节）。
 
 **页码范围语法**：
@@ -112,8 +98,15 @@ uv run python -m paper_reading.cli \
 | `--src_lang` | 否 | 源语言，默认 `en` |
 | `--target_lang` | 否 | 目标语言，默认 `zh` |
 | `--steps` | 否 | 逗号分隔的步骤：`summary`、`translate`、`original` |
-
-未指定的参数使用 `config.yaml` 中的默认值。
+| `--chat_model_name` | 否 | 文本模型名称，默认 `llama3` |
+| `--vision_model_name` | 否 | 视觉模型名称，默认 `llama3` |
+| `--llm_endpoint` | 否 | LLM API 地址（默认读取 env `LLM_ENDPOINT`） |
+| `--llm_api_key` | 否 | API Key（默认读取 env `LLM_API_KEY`） |
+| `--temperature` | 否 | 生成温度 |
+| `--top_p` | 否 | top-p 采样 |
+| `--num_ctx` | 否 | 模型上下文长度 |
+| `--asset_save_dir` | 否 | 解析资源保存目录 |
+| `--cache_data_dir` | 否 | 磁盘缓存目录 |
 
 ### 3. 批量处理
 
@@ -121,47 +114,38 @@ uv run python -m paper_reading.cli \
 
 ## 配置
 
-主配置为项目根目录下的 `config.yaml`（可复制仓库内示例并按本机路径修改）。主要字段如下。
+所有运行参数通过 **CLI 参数** 或 **环境变量** 传入，无需配置文件。
 
-### LLM 与模型
+### LLM 连接
 
-LLM 连接信息通过环境变量配置（见 [快速开始 / 配置 LLM](#2-配置-llm)），模型名称在 `config.yaml` 中配置：
+通过环境变量或 CLI 参数配置（见 [快速开始 / 配置 LLM](#2-配置-llm)）：
 
-```yaml
-chat_model_name: qwen3:30b-a3b-thinking-2507-q4_K_M
-vision_model_name: qwen2.5vl:7b
-max_context_token_num: 60000
+```sh
+export LLM_ENDPOINT="http://127.0.0.1:11434"
+export LLM_API_KEY=""   # 留空用 Ollama
 ```
 
-### 路径与步骤
+或通过 CLI：`--llm_endpoint http://127.0.0.1:11434 --llm_api_key sk-xxx`
 
-```yaml
-cache_data_dir: ~/.cache/llm_cache
-asset_save_dir: ~/obsidian/attachments
-temp_content_dir: ./tmp/parsed_asset
+### 模型与生成参数
 
-steps: summary,translate,original
-src_lang: en
-target_lang: zh
+```sh
+paper-reading \
+    --chat_model_name qwen3:30b \
+    --vision_model_name qwen2.5vl:7b \
+    --temperature 0.7 --top_p 0.4 --num_ctx 60000 \
+    --max_context_token_num 60000 \
+    ...
 ```
 
-### 生成参数
+### 路径
 
-```yaml
-gen_conf:
-    temperature: 0.7
-    top_p: 0.4
-    repeat_penalty: 1.2
-    num_ctx: 60000
-```
-
-### 提示词模板（可选）
-
-占位符：`{src_lang}`、`{target_lang}`、`{content}`。可在 `config.yaml` 中覆盖默认的 `prompt_translate` 与 `prompt_summary`。
+- `--asset_save_dir`：解析后的图像/表格保存目录
+- `--cache_data_dir`：磁盘缓存目录（默认 `~/.cache/llm_cache`）
 
 ### 页面提取
 
-`extract-pages` 的输入 PDF 与页码在 `config.yaml` 的 `extract_pages` 中配置，无需单独文件。
+`extract-pages` 通过 CLI 参数 `--input_pdf` 和 `--pages` 指定输入文件与页码范围。
 
 ## Agent Skill
 

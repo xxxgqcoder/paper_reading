@@ -5,7 +5,6 @@ description = "A PDF processing pipeline for academic papers with summarization 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "PyYAML",
     "StrEnum",
     "diskcache",
     "huggingface-hub",
@@ -14,7 +13,6 @@ dependencies = [
     "modelscope",
     "ollama",
     "pydantic",
-    "pydantic-settings[yaml]",
     "pypdf",
     "tiktoken",
     "xxhash",

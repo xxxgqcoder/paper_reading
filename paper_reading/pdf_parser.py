@@ -6,7 +6,7 @@ import tempfile
 import uuid
 from typing import Any
 
-from .config import Config, Content, ContentType
+from .config import Content, ContentType
 from .log import Logger
 from .utils import cache_it, hash64, load_base64_image, safe_encode, safe_strip, time_it
 
@@ -184,8 +184,7 @@ class PDFParser:
 
     @time_it("pdf parser")
     @cache_it(key_generator=key_generator)
-    def parse(self, file_path: str) -> list[Content]:
-        asset_save_dir = Config.asset_save_dir
+    def parse(self, file_path: str, asset_save_dir: str = "") -> list[Content]:
         os.makedirs(asset_save_dir, exist_ok=True)
         self.file_path = file_path
 

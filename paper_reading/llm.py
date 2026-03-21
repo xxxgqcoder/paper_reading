@@ -4,7 +4,6 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .config import Config, get_llm_api_key, get_llm_endpoint
 from .log import Logger
 from .utils import cache_it, hash64, time_it
 
@@ -26,8 +25,7 @@ def _is_openrouter_endpoint(endpoint: str) -> bool:
     return "openrouter.ai" in endpoint
 
 
-def resolve_model_name(model: str, endpoint: str | None = None) -> str:
-    endpoint = endpoint or get_llm_endpoint()
+def resolve_model_name(model: str, endpoint: str) -> str:
     if not _is_openrouter_endpoint(endpoint):
         return model
 
@@ -51,12 +49,12 @@ def resolve_model_name(model: str, endpoint: str | None = None) -> str:
     return resolved
 
 
-def _get_chat_model_name(model: str | None = None) -> str:
-    return resolve_model_name(model or Config.chat_model_name)
+def _resolve_chat_model(model: str, endpoint: str) -> str:
+    return resolve_model_name(model, endpoint)
 
 
-def _get_vision_model_name(model: str | None = None) -> str:
-    return resolve_model_name(model or Config.vision_model_name)
+def _resolve_vision_model(model: str, endpoint: str) -> str:
+    return resolve_model_name(model, endpoint)
 
 
 class LLMBackend(ABC):
@@ -228,10 +226,8 @@ _llm_backends: dict[tuple[str, str], LLMBackend] = {}
 _llm_semaphores: dict[tuple[str, str], asyncio.Semaphore] = {}
 
 
-def _get_llm_backend() -> LLMBackend:
+def _get_llm_backend(endpoint: str, api_key: str) -> LLMBackend:
     """按 (endpoint, api_key) 缓存 backend 实例，支持多配置场景。"""
-    api_key = get_llm_api_key()
-    endpoint = get_llm_endpoint()
     cache_key = (endpoint, api_key)
     if cache_key not in _llm_backends:
         if api_key:
@@ -258,9 +254,9 @@ def _get_llm_backend() -> LLMBackend:
     return _llm_backends[cache_key]
 
 
-def _get_llm_semaphore() -> asyncio.Semaphore:
+def _get_llm_semaphore(endpoint: str, api_key: str) -> asyncio.Semaphore:
     """获取当前 backend 对应的并发信号量。"""
-    cache_key = (get_llm_endpoint(), get_llm_api_key())
+    cache_key = (endpoint, api_key)
     return _llm_semaphores[cache_key]
 
 
@@ -275,9 +271,9 @@ def _strip_thinking_tags(text: str) -> str:
 
 @time_it(prefix="llm chat")
 @cache_it(
-    key_generator=lambda prompt, gen_conf, model=None: (
+    key_generator=lambda prompt, gen_conf, model, endpoint, api_key: (
         "llm_chat::"
-        + hash64(f"{get_llm_endpoint()}::{_get_chat_model_name(model)}".encode())
+        + hash64(f"{endpoint}::{resolve_model_name(model, endpoint)}".encode())
         + "::prompt_hash::"
         + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
     )
@@ -285,12 +281,14 @@ def _strip_thinking_tags(text: str) -> str:
 async def llm_chat(
     prompt: str,
     gen_conf: dict[str, Any],
-    model: str | None = None,
+    model: str,
+    endpoint: str,
+    api_key: str,
 ) -> str | None:
-    backend = _get_llm_backend()
-    semaphore = _get_llm_semaphore()
+    backend = _get_llm_backend(endpoint, api_key)
+    semaphore = _get_llm_semaphore(endpoint, api_key)
     messages = [{"role": "user", "content": prompt}]
-    chat_model_name = _get_chat_model_name(model)
+    chat_model_name = _resolve_chat_model(model, endpoint)
     async with semaphore:
         try:
             ans = await backend.chat(
@@ -308,9 +306,9 @@ async def llm_chat(
 
 @time_it(prefix="image chat")
 @cache_it(
-    key_generator=lambda prompt, image_content, gen_conf, model=None: (
+    key_generator=lambda prompt, image_content, gen_conf, model, endpoint, api_key: (
         "image_chat::"
-        + hash64(f"{get_llm_endpoint()}::{_get_vision_model_name(model)}".encode())
+        + hash64(f"{endpoint}::{resolve_model_name(model, endpoint)}".encode())
         + "::prompt_hash::"
         + hash64(
             (prompt + image_content + json.dumps(gen_conf, default=str)).encode(
@@ -323,11 +321,13 @@ async def image_chat(
     prompt: str,
     image_content: str,
     gen_conf: dict[str, Any],
-    model: str | None = None,
+    model: str,
+    endpoint: str,
+    api_key: str,
 ) -> str | None:
-    backend = _get_llm_backend()
-    semaphore = _get_llm_semaphore()
-    vision_model_name = _get_vision_model_name(model)
+    backend = _get_llm_backend(endpoint, api_key)
+    semaphore = _get_llm_semaphore(endpoint, api_key)
+    vision_model_name = _resolve_vision_model(model, endpoint)
     async with semaphore:
         try:
             return await backend.vision_chat(

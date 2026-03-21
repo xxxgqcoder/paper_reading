@@ -4,7 +4,7 @@ import os
 
 from pypdf import PdfReader, PdfWriter
 
-from .config import Config, ExtractPagesParams
+from .config import ExtractPagesParams
 from .log import Logger
 
 
@@ -43,26 +43,14 @@ def extract_pages(
         writer.write(f)
 
 
-def run_extract_pages(params: ExtractPagesParams | None = None) -> list[str]:
+def run_extract_pages(params: ExtractPagesParams) -> list[str]:
     """从 PDF 中按页码范围提取子页面。
 
-    当 params 为 None 时回退到 Config.extract_pages（向后兼容 CLI）；
-    传入 ExtractPagesParams 时使用调用方提供的参数。
     返回输出 PDF 路径列表。
     """
-    if params is not None:
-        input_pdf_raw = params.input_pdf
-        pages = params.pages
-        output_dir = params.output_dir
-    else:
-        conf = Config.extract_pages
-        if not conf.input_pdf:
-            raise ValueError("extract_pages.input_pdf is not set in config.yaml")
-        if not conf.pages:
-            raise ValueError("extract_pages.pages is empty in config.yaml")
-        input_pdf_raw = conf.input_pdf
-        pages = conf.pages
-        output_dir = None
+    input_pdf_raw = params.input_pdf
+    pages = params.pages
+    output_dir = params.output_dir
 
     input_pdf = os.path.abspath(os.path.expanduser(input_pdf_raw))
     base, ext = os.path.splitext(input_pdf)

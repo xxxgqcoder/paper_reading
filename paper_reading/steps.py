@@ -24,7 +24,7 @@ class StepContext:
     content_list: list[Content]
     src_lang: str
     target_lang: str
-    # 以下字段由 pipeline.process() 从 Config / ProcessParams 合并后注入
+    # 以下字段由 pipeline.process() 从 ProcessParams 注入
     chat_model_name: str = ""
     vision_model_name: str = ""
     gen_conf: dict[str, Any] = field(default_factory=dict)
@@ -32,6 +32,8 @@ class StepContext:
     prompt_summary: str = ""
     max_context_token_num: int = 1024 * 16
     asset_save_dir: str = ""
+    llm_endpoint: str = ""
+    llm_api_key: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +87,8 @@ async def translate_text_content(
             prompt=formatted_prompt,
             gen_conf=ctx.gen_conf,
             model=ctx.chat_model_name,
+            endpoint=ctx.llm_endpoint,
+            api_key=ctx.llm_api_key,
         )
         if not ret:
             ret = "[LLM error]"
@@ -218,6 +222,8 @@ async def summary_content(ctx: StepContext) -> None:
         prompt=formatted_prompt,
         gen_conf=ctx.gen_conf,
         model=ctx.chat_model_name,
+        endpoint=ctx.llm_endpoint,
+        api_key=ctx.llm_api_key,
     )
     if not summary:
         summary = "[LLM error]"

@@ -4,7 +4,6 @@ import time
 from .config import (
     LANG_MAPPING,
     STEP_OUTPUT_ORDER,
-    Config,
     Content,
     ProcessParams,
     ProcessResult,
@@ -17,11 +16,11 @@ from .utils import line_breaker, time_it
 
 @time_it(prefix="parse_pdf")
 def parse_pdf(
-    file_path: str, runtime_config_path: str
+    file_path: str, runtime_config_path: str, asset_save_dir: str
 ) -> list[Content]:
     Logger.info(f"Begin to parse file: {file_path}")
     parser = PDFParser(runtime_config_path)
-    content_list = parser.parse(file_path)
+    content_list = parser.parse(file_path, asset_save_dir=asset_save_dir)
     Logger.info(f"Parsed {len(content_list)} contents from {file_path}")
     return content_list
 
@@ -33,14 +32,16 @@ async def process(params: ProcessParams) -> ProcessResult:
     """
     begin_ts = time.time()
 
-    # 合并参数：调用参数 > Config 默认值
-    chat_model = params.chat_model_name or Config.chat_model_name
-    vision_model = params.vision_model_name or Config.vision_model_name
-    gen_conf = (
-        params.gen_conf
-        if params.gen_conf is not None
-        else Config.gen_conf.model_dump()
-    )
+    # 校验 LLM endpoint
+    if not params.llm_endpoint:
+        raise ValueError(
+            "ProcessParams.llm_endpoint is empty. "
+            "Please set it via CLI --llm_endpoint or env var LLM_ENDPOINT."
+        )
+
+    chat_model = params.chat_model_name
+    vision_model = params.vision_model_name
+    gen_conf = params.gen_conf
 
     src_lang_display = LANG_MAPPING.get(params.src_lang, params.src_lang)
     target_lang_display = LANG_MAPPING.get(params.target_lang, params.target_lang)
@@ -59,6 +60,7 @@ async def process(params: ProcessParams) -> ProcessResult:
     content_list = parse_pdf(
         file_path=params.file_path,
         runtime_config_path=runtime_config_path,
+        asset_save_dir=params.asset_save_dir,
     )
 
     md_file_path = os.path.join(params.output_dir, f"{name_without_suff}.md")
@@ -72,10 +74,12 @@ async def process(params: ProcessParams) -> ProcessResult:
         chat_model_name=chat_model,
         vision_model_name=vision_model,
         gen_conf=gen_conf,
-        prompt_translate=Config.prompt_translate,
-        prompt_summary=Config.prompt_summary,
-        max_context_token_num=Config.max_context_token_num,
-        asset_save_dir=Config.asset_save_dir,
+        prompt_translate=params.prompt_translate,
+        prompt_summary=params.prompt_summary,
+        max_context_token_num=params.max_context_token_num,
+        asset_save_dir=params.asset_save_dir,
+        llm_endpoint=params.llm_endpoint,
+        llm_api_key=params.llm_api_key,
     )
     with open(md_file_path, "w") as md_writer:
         ctx.md_writer = md_writer

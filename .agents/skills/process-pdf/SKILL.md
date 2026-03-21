@@ -48,9 +48,14 @@ paper-reading install-skills
 | `steps` | `list[str]` | 否 | `["summary", "translate", "original"]` | 执行的步骤列表 |
 | `src_lang` | `str` | 否 | `"en"` | 源语言代码 |
 | `target_lang` | `str` | 否 | `"zh"` | 目标语言代码 |
-| `chat_model_name` | `str \| None` | 否 | `None`（回退到 config.yaml） | 文本模型名称 |
-| `vision_model_name` | `str \| None` | 否 | `None`（回退到 config.yaml） | 视觉模型名称 |
-| `gen_conf` | `dict \| None` | 否 | `None`（回退到 config.yaml） | 生成参数（temperature、top_p 等） |
+| `llm_endpoint` | `str` | 否 | env `LLM_ENDPOINT` | LLM API 地址 |
+| `llm_api_key` | `str` | 否 | env `LLM_API_KEY` | API Key |
+| `chat_model_name` | `str` | 否 | `"llama3"` | 文本模型名称 |
+| `vision_model_name` | `str` | 否 | `"llama3"` | 视觉模型名称 |
+| `gen_conf` | `dict` | 否 | `{temperature: 0.7, top_p: 0.3, ...}` | 生成参数 |
+| `max_context_token_num` | `int` | 否 | `16384` | 摘要最大输入 token 数 |
+| `asset_save_dir` | `str` | 否 | `""` | 解析资源保存目录 |
+| `cache_data_dir` | `str` | 否 | `"~/.cache/llm_cache"` | 磁盘缓存目录 |
 
 ## 输出格式
 
@@ -91,5 +96,7 @@ paper-reading \
     --final_md_file_save_dir /path/to/output \
     --steps summary,translate,original \
     --src_lang en \
-    --target_lang zh
+    --target_lang zh \
+    --chat_model_name llama3 \
+    --llm_endpoint http://127.0.0.1:11434
 ```

@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import Config, ExtractPagesParams, ProcessParams, Step
+from .config import ExtractPagesParams, ProcessParams, Step, _default_gen_conf
 from .extract_pages import run_extract_pages
 from .log import Logger
 from .pipeline import process
@@ -97,6 +97,7 @@ def _install_skills(uninstall: bool = False) -> None:
 
 def main() -> None:
     valid_steps = ",".join(s.value for s in Step)
+    gen_defaults = _default_gen_conf()
     parser = argparse.ArgumentParser(
         description=(
             "PDF tool: parse/translate/summarize (default),"
@@ -110,6 +111,8 @@ def main() -> None:
         choices=["process", "extract-pages", "install-skills"],
         help="process (default), extract-pages, or install-skills",
     )
+
+    # --- process 参数 ---
     parser.add_argument("--file_path", help="path to pdf file (required for process)")
     parser.add_argument(
         "--final_md_file_save_dir",
@@ -117,12 +120,68 @@ def main() -> None:
     )
     parser.add_argument(
         "--steps",
-        help=f"override config steps (valid: {valid_steps})",
+        default="summary,translate,original",
+        help=f"comma-separated processing steps (valid: {valid_steps})",
     )
-    parser.add_argument("--src_lang", help="override config source language (en/zh)")
-    parser.add_argument("--target_lang", help="override config target language (en/zh)")
+    parser.add_argument(
+        "--src_lang", default="en", help="source language (default: en)"
+    )
+    parser.add_argument(
+        "--target_lang", default="zh", help="target language (default: zh)"
+    )
+    parser.add_argument(
+        "--chat_model_name", default="llama3", help="chat model name (default: llama3)"
+    )
+    parser.add_argument(
+        "--vision_model_name",
+        default="llama3",
+        help="vision model name (default: llama3)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=gen_defaults["temperature"],
+        help="generation temperature",
+    )
+    parser.add_argument(
+        "--top_p", type=float, default=gen_defaults["top_p"], help="top-p sampling"
+    )
+    parser.add_argument(
+        "--repeat_penalty",
+        type=float,
+        default=gen_defaults["repeat_penalty"],
+        help="repeat penalty",
+    )
+    parser.add_argument(
+        "--num_ctx",
+        type=int,
+        default=gen_defaults["num_ctx"],
+        help="model context length",
+    )
+    parser.add_argument(
+        "--max_context_token_num",
+        type=int,
+        default=1024 * 16,
+        help="max input token num for summary",
+    )
+    parser.add_argument(
+        "--asset_save_dir", default="", help="directory to save parsed assets"
+    )
+    parser.add_argument(
+        "--cache_data_dir", default="~/.cache/llm_cache", help="disk cache directory"
+    )
+    parser.add_argument(
+        "--llm_endpoint",
+        default=os.environ.get("LLM_ENDPOINT", ""),
+        help="LLM API endpoint (default: env LLM_ENDPOINT)",
+    )
+    parser.add_argument(
+        "--llm_api_key",
+        default=os.environ.get("LLM_API_KEY", ""),
+        help="LLM API key (default: env LLM_API_KEY)",
+    )
 
-    # extract-pages 专用参数
+    # --- extract-pages 参数 ---
     parser.add_argument("--input_pdf", help="path to input PDF (for extract-pages)")
     parser.add_argument(
         "--pages",
@@ -131,7 +190,7 @@ def main() -> None:
     )
     parser.add_argument("--output_dir", help="output directory (for extract-pages)")
 
-    # install-skills 专用参数
+    # --- install-skills 参数 ---
     parser.add_argument(
         "--uninstall",
         action="store_true",
@@ -145,18 +204,16 @@ def main() -> None:
         return
 
     if args.command == "extract-pages":
+        if not args.input_pdf or not args.pages:
+            parser.error("extract-pages requires --input_pdf and --pages")
         begin_ts = time.time()
         try:
-            # CLI 参数优先，回退到 config.yaml
-            if args.input_pdf and args.pages:
-                params = ExtractPagesParams(
-                    input_pdf=args.input_pdf,
-                    pages=args.pages,
-                    output_dir=args.output_dir,
-                )
-                out_paths = run_extract_pages(params)
-            else:
-                out_paths = run_extract_pages()
+            params = ExtractPagesParams(
+                input_pdf=args.input_pdf,
+                pages=args.pages,
+                output_dir=args.output_dir,
+            )
+            out_paths = run_extract_pages(params)
             result = {
                 "status": "success",
                 "output_files": out_paths,
@@ -174,17 +231,29 @@ def main() -> None:
             sys.exit(1)
         return
 
-    # process (default)
+    # --- process (default) ---
     if not args.file_path or not args.final_md_file_save_dir:
         parser.error("process requires --file_path and --final_md_file_save_dir")
 
-    steps_raw = args.steps if args.steps else Config.steps
     params = ProcessParams(
         file_path=args.file_path,
         output_dir=os.path.realpath(args.final_md_file_save_dir),
-        steps=[s.strip() for s in steps_raw.split(",")],
-        src_lang=args.src_lang or Config.src_lang,
-        target_lang=args.target_lang or Config.target_lang,
+        steps=[s.strip() for s in args.steps.split(",")],
+        src_lang=args.src_lang,
+        target_lang=args.target_lang,
+        llm_endpoint=args.llm_endpoint,
+        llm_api_key=args.llm_api_key,
+        chat_model_name=args.chat_model_name,
+        vision_model_name=args.vision_model_name,
+        gen_conf={
+            "temperature": args.temperature,
+            "top_p": args.top_p,
+            "repeat_penalty": args.repeat_penalty,
+            "num_ctx": args.num_ctx,
+        },
+        max_context_token_num=args.max_context_token_num,
+        asset_save_dir=args.asset_save_dir,
+        cache_data_dir=args.cache_data_dir,
     )
 
     Logger.info(f"Processing file: {os.path.basename(params.file_path)}")

@@ -10,7 +10,6 @@ import tiktoken
 import xxhash
 from diskcache import Cache
 
-from .config import Config
 from .log import Logger
 
 line_breaker = "\n\n"
@@ -119,7 +118,9 @@ def ensure_utf(text: str) -> str:
 
 
 def cache_it(
-    key_generator: Callable[..., str], ttl_seconds=60 * 60 * 24 * 100
+    key_generator: Callable[..., str],
+    ttl_seconds=60 * 60 * 24 * 100,
+    cache_data_dir: str = "~/.cache/llm_cache",
 ) -> Callable[..., Callable[..., T]]:
     """
     File-based cache decorator using diskcache.
@@ -127,18 +128,29 @@ def cache_it(
     This decorator saves the results of a function call to a disk-based cache.
     On subsequent calls with the same arguments, it returns the cached result
     if it hasn't expired.
+
+    Cache 对象在首次调用时 lazy 初始化，避免装饰时依赖外部配置。
     """
-    cache = Cache(Config.cache_data_dir)
+    _cache: Cache | None = None
+
+    def _get_cache() -> Cache:
+        nonlocal _cache
+        if _cache is None:
+            path = os.path.abspath(os.path.expanduser(cache_data_dir))
+            _cache = Cache(path)
+        return _cache
 
     def _try_get(cache_key: str):
-        if cache_key in cache:
+        c = _get_cache()
+        if cache_key in c:
             Logger.info(f"Loaded cache from {cache_key}")
-            return True, cache[cache_key]
+            return True, c[cache_key]
         return False, None
 
     def _try_set(cache_key: str, result, ttl: int) -> None:
         if result:
-            cache.set(cache_key, result, expire=ttl)
+            c = _get_cache()
+            c.set(cache_key, result, expire=ttl)
             Logger.info(f"Saved cache to {cache_key}")
 
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
