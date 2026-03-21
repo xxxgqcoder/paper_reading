@@ -283,3 +283,12 @@ class ProcessResult:
     output_file: str
     steps_completed: list[str]
     elapsed_seconds: float
+
+
+@dataclass
+class ExtractPagesParams:
+    """每次调用 run_extract_pages() 的独立参数，AI 调用方只需构造此对象。"""
+
+    input_pdf: str
+    pages: list[str]
+    output_dir: str | None = None

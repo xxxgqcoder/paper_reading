@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import os
 
 from pypdf import PdfReader, PdfWriter
 
-from .config import Config
+from .config import Config, ExtractPagesParams
 from .log import Logger
 
 
@@ -41,20 +43,39 @@ def extract_pages(
         writer.write(f)
 
 
-def run_extract_pages() -> list[str]:
+def run_extract_pages(params: ExtractPagesParams | None = None) -> list[str]:
+    """从 PDF 中按页码范围提取子页面。
+
+    当 params 为 None 时回退到 Config.extract_pages（向后兼容 CLI）；
+    传入 ExtractPagesParams 时使用调用方提供的参数。
+    返回输出 PDF 路径列表。
     """
-    Run extract-pages using Config.extract_pages settings.
-    Returns list of output PDF paths.
-    """
-    conf = Config.extract_pages
-    if not conf.input_pdf:
-        raise ValueError("extract_pages.input_pdf is not set in config.yaml")
-    if not conf.pages:
-        raise ValueError("extract_pages.pages is empty in config.yaml")
-    input_pdf = os.path.abspath(os.path.expanduser(conf.input_pdf))
+    if params is not None:
+        input_pdf_raw = params.input_pdf
+        pages = params.pages
+        output_dir = params.output_dir
+    else:
+        conf = Config.extract_pages
+        if not conf.input_pdf:
+            raise ValueError("extract_pages.input_pdf is not set in config.yaml")
+        if not conf.pages:
+            raise ValueError("extract_pages.pages is empty in config.yaml")
+        input_pdf_raw = conf.input_pdf
+        pages = conf.pages
+        output_dir = None
+
+    input_pdf = os.path.abspath(os.path.expanduser(input_pdf_raw))
     base, ext = os.path.splitext(input_pdf)
+
+    # 如果指定了输出目录，则将文件写入该目录
+    if output_dir:
+        output_dir = os.path.abspath(os.path.expanduser(output_dir))
+        os.makedirs(output_dir, exist_ok=True)
+        input_name = os.path.splitext(os.path.basename(input_pdf))[0]
+        base = os.path.join(output_dir, input_name)
+
     out_paths: list[str] = []
-    for pages_str in conf.pages:
+    for pages_str in pages:
         pages_str = pages_str.strip()
         out_path = f"{base}-{pages_str}{ext}"
         indices = parse_page_ranges(pages_str)
