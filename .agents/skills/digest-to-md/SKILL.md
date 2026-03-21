@@ -1,9 +1,9 @@
 ---
-name: process-pdf
-description: 'Parse academic PDF papers with LLM summarization and translation to Markdown. Use when: processing PDF, reading paper, summarizing paper, translating paper, parsing academic document.'
+name: digest-to-md
+description: 'Digest academic PDF papers by summarizing and translating them into a Markdown file. Use when: digesting PDF, summarizing paper, translating paper, converting paper to Markdown.'
 ---
 
-# Skill: process-pdf
+# Skill: digest-to-md
 
 解析学术论文 PDF，通过 LLM 进行总结与翻译，输出 Markdown 文件。
 
