@@ -47,21 +47,21 @@ PDF 解析依赖 [MinerU](https://github.com/opendatalab/MinerU) 及其模型。
 
 ### 4. 处理单个 PDF
 
+快速处理单个 PDF（使用默认配置）：
+
 ```sh
-python process_pdf.py \
+uv run python -m paper_reading.cli \
     --file_path /path/to/paper.pdf \
     --final_md_file_save_dir /path/to/output
 ```
 
-可选：复制并修改 `run_process_pdf.sh` 中的路径后执行 `./run_process_pdf.sh` 作为快捷方式。
+或直接编辑 `run_process_pdf.sh` 并执行为快捷方式。
 
 ## 使用方法
 
 ### 1. 提取 PDF 指定页
 
-使用子命令 `extract-pages`，从 PDF 中按配置的页面范围导出为新 PDF。
-
-在 `config.yaml` 中配置：
+在 `config.yaml` 中配置输入 PDF 和页码范围：
 
 ```yaml
 extract_pages:
@@ -74,40 +74,44 @@ extract_pages:
 然后执行：
 
 ```sh
-python process_pdf.py extract-pages
+uv run python -m paper_reading.cli extract-pages
 ```
 
-- 支持页码范围：如 `1,3,5-7` 表示第 1、3、5～7 页。
+或直接通过 Python API（见下方 [Agent Skill](#agent-skill) 章节）。
+
+**页码范围语法**：
+- `1-93` — 第 1 到 93 页
+- `100,105-110` — 第 100 页、105 到 110 页
+- `1,3,5-7` — 第 1、3、5 到 7 页
 
 ### 2. 单个 PDF 解析 / 总结 / 翻译
 
-默认子命令为 `process`（可省略）。必填参数：`--file_path`、`--final_md_file_save_dir`。
+通过 CLI 处理 PDF（默认执行 `process` 子命令）：
 
 ```sh
-python process_pdf.py \
+uv run python -m paper_reading.cli \
     --file_path /path/to/paper.pdf \
     --final_md_file_save_dir /path/to/output \
     --src_lang en \
     --target_lang zh \
-    --steps original,summary,translate
+    --steps summary,translate,original
 ```
 
-**参数说明：**
+**参数说明**（详见各 Skill 文档）：
 
-| 参数 | 说明 |
-|------|------|
-| `--file_path` | 输入 PDF 路径（process 时必填） |
-| `--final_md_file_save_dir` | 输出 Markdown 所在目录（process 时必填） |
-| `--temp_content_dir` | 解析过程临时文件目录，默认使用 config 中的 `temp_content_dir` |
-| `--src_lang` | 源语言，如 `en`（默认） |
-| `--target_lang` | 目标语言，如 `zh`（默认） |
-| `--steps` | 逗号分隔的步骤：`summary`（摘要）、`translate`（翻译）、`original`（原文） |
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `--file_path` | 是 | 输入 PDF 路径 |
+| `--final_md_file_save_dir` | 是 | 输出 Markdown 目录 |
+| `--src_lang` | 否 | 源语言，默认 `en` |
+| `--target_lang` | 否 | 目标语言，默认 `zh` |
+| `--steps` | 否 | 逗号分隔的步骤：`summary`、`translate`、`original` |
 
-未指定的参数以 `config.yaml` 为准。
+未指定的参数使用 `config.yaml` 中的默认值。
 
 ### 3. 批量处理
 
-仓库未附带批量脚本。可自行写脚本遍历 PDF 目录，对每个文件调用上述 `process_pdf.py` 命令（或循环调用 `process()`），并根据需要设置 `pdf_folder`、`output_folder`、`steps` 等。
+仓库未附带批量脚本。可自行编写脚本遍历 PDF 目录，对每个文件调用 CLI 命令或 Python API（见下方 [Agent Skill](#agent-skill) 中的 Python API 示例）。
 
 ## 配置
 
@@ -153,48 +157,55 @@ gen_conf:
 
 `extract-pages` 的输入 PDF 与页码在 `config.yaml` 的 `extract_pages` 中配置，无需单独文件。
 
-## Skill 发布方案存档
+## Agent Skill
 
-当前仓库先**记录方案，不立即改造项目结构**。
+本项目已按 `.agents/skills/` 约定提供两个可供 AI Agent 调用的 Skill，每个 Skill 都有完整文档、参数说明、调用示例。
 
-如果后续要把本项目封装为可被不同 Agent 调用的通用 Skill，优先采用 **`.agents/skills/`** 目录约定，而不是绑定某个单一客户端的专属目录。
+### 可用 Skill
 
-### 选型结论
+| Skill | 功能 | 文档 |
+|-------|------|------|
+| **process-pdf** | 解析 PDF、生成摘要、翻译文本，输出 Markdown | [SKILL.md](.agents/skills/process-pdf/SKILL.md) |
+| **extract-pages** | 按页码范围从 PDF 提取子页面 | [SKILL.md](.agents/skills/extract-pages/SKILL.md) |
 
-- **采用方案**：`.agents/skills/`
-- **目标**：尽量兼容多种支持 Agent Skills 的客户端，而不只面向 Copilot
-- **当前状态**：仅在 README 中存档该决策，暂不新增 Skill 文件，暂不改造 CLI / Python API / 项目目录
+### 调用方式
 
-### 选择原因
+每个 Skill 支持三种调用方式：
 
-- `.agents/skills/` 是更通用的跨客户端约定，适合将 Skill 作为可复用能力分发给不同 Agent。
-- 相比 `.github/skills/`（偏 Copilot）或 `.claude/skills/`（偏 Claude Code），该路径更利于后续迁移和复用。
-- Skill 本质上是由 `SKILL.md`、可选脚本、参考资料组成的目录结构，便于版本控制、复制和分发。
+1. **Python API**（推荐用于集成）
+   ```python
+   import asyncio
+   from paper_reading import process, ProcessParams
+   
+   params = ProcessParams(
+       file_path="/path/to/paper.pdf",
+       output_dir="/path/to/output",
+       steps=["summary", "translate", "original"]
+   )
+   result = asyncio.run(process(params))
+   ```
 
-### 后续落地时的目标结构
+2. **CLI**（命令行工具）
+   ```sh
+   uv run python -m paper_reading.cli \
+       --file_path /path/to/paper.pdf \
+       --final_md_file_save_dir /path/to/output
+   ```
 
-后续如果正式接入，建议优先采用如下结构：
+3. **Shell 脚本**（Skill 目录中的 `scripts/run.sh`）
+   ```sh
+   bash .agents/skills/process-pdf/scripts/run.sh \
+       /path/to/paper.pdf /path/to/output
+   ```
 
-```text
-.agents/
-└── skills/
-    ├── process-pdf/
-    │   ├── SKILL.md
-    │   ├── scripts/
-    │   └── references/
-    └── extract-pages/
-        └── SKILL.md
-```
+### 安装 Skill
 
-### 发布与安装方式
+- **项目级**：已在本仓库 `.agents/skills/` 下，克隆即可使用
+- **用户级**：复制到 `~/.agents/skills/` 下，用户的所有项目可复用
+  ```sh
+  cp -r .agents/skills/* ~/.agents/skills/
+  ```
 
-未来如果需要对外分享，建议将 Skill 单独放在一个公开仓库中，用户通过以下两种方式安装：
+### 文档
 
-1. **项目级安装**：复制到某个项目的 `.agents/skills/` 下，仅该项目可用。
-2. **用户级安装**：复制到 `~/.agents/skills/` 下，当前用户的多个项目可复用。
-
-### 兼容性说明
-
-- 该方案面向 **通用 Agent Skills** 思路设计。
-- 若未来需要兼容某些客户端的历史路径，可再按需补充镜像目录（如 `.github/skills/` 或 `.claude/skills/`）。
-- 当前 README 中的这段内容仅作为发布方案存档，**不表示仓库已经完成 Skill 化改造**。
+详细的参数说明、输出格式、前置条件等，请查看各 Skill 的 `SKILL.md` 文件。
