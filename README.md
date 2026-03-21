@@ -61,7 +61,15 @@ uv run python -m paper_reading.cli \
 
 ### 1. 提取 PDF 指定页
 
-在 `config.yaml` 中配置输入 PDF 和页码范围：
+通过 CLI 传入参数：
+
+```sh
+paper-reading extract-pages \
+    --input_pdf ~/path/to/input.pdf \
+    --pages 1-93 "100,105-110"
+```
+
+或在 `config.yaml` 中配置后执行（适用于项目内开发）：
 
 ```yaml
 extract_pages:
@@ -71,10 +79,8 @@ extract_pages:
         - 100,105-110
 ```
 
-然后执行：
-
 ```sh
-uv run python -m paper_reading.cli extract-pages
+paper-reading extract-pages
 ```
 
 或直接通过 Python API（见下方 [Agent Skill](#agent-skill) 章节）。
@@ -168,9 +174,34 @@ gen_conf:
 | **process-pdf** | 解析 PDF、生成摘要、翻译文本，输出 Markdown | [SKILL.md](.agents/skills/process-pdf/SKILL.md) |
 | **extract-pages** | 按页码范围从 PDF 提取子页面 | [SKILL.md](.agents/skills/extract-pages/SKILL.md) |
 
+### 安装 Skill
+
+#### 全局安装（推荐，使 Agent 在任意工作区自动发现）
+
+```sh
+# 1. 安装 CLI 工具
+uv tool install paper-reading
+# 或从 Git 仓库安装
+# uv tool install git+https://github.com/yourname/paper-reading
+
+# 2. 部署 Skill 文档到 ~/.agents/skills/
+paper-reading install-skills
+```
+
+卸载：
+
+```sh
+paper-reading install-skills --uninstall
+uv tool uninstall paper-reading
+```
+
+#### 项目级安装
+
+克隆仓库后 Skill 已在 `.agents/skills/` 下，当前项目内直接可用。
+
 ### 调用方式
 
-每个 Skill 支持三种调用方式：
+每个 Skill 支持两种调用方式：
 
 1. **Python API**（推荐用于集成）
    ```python
@@ -187,24 +218,16 @@ gen_conf:
 
 2. **CLI**（命令行工具）
    ```sh
-   uv run python -m paper_reading.cli \
+   # 解析/总结/翻译 PDF
+   paper-reading \
        --file_path /path/to/paper.pdf \
        --final_md_file_save_dir /path/to/output
+
+   # 提取 PDF 页面
+   paper-reading extract-pages \
+       --input_pdf /path/to/paper.pdf \
+       --pages 1-93 "100,105-110"
    ```
-
-3. **Shell 脚本**（Skill 目录中的 `scripts/run.sh`）
-   ```sh
-   bash .agents/skills/process-pdf/scripts/run.sh \
-       /path/to/paper.pdf /path/to/output
-   ```
-
-### 安装 Skill
-
-- **项目级**：已在本仓库 `.agents/skills/` 下，克隆即可使用
-- **用户级**：复制到 `~/.agents/skills/` 下，用户的所有项目可复用
-  ```sh
-  cp -r .agents/skills/* ~/.agents/skills/
-  ```
 
 ### 文档
 

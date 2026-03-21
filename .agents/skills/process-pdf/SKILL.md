@@ -1,3 +1,8 @@
+---
+name: process-pdf
+description: 'Parse academic PDF papers with LLM summarization and translation to Markdown. Use when: processing PDF, reading paper, summarizing paper, translating paper, parsing academic document.'
+---
+
 # Skill: process-pdf
 
 解析学术论文 PDF，通过 LLM 进行总结与翻译，输出 Markdown 文件。
@@ -13,6 +18,14 @@
 
 ## 前置条件
 
+### 安装
+
+```sh
+uv tool install paper-reading
+# 部署 Skill 到全局目录（可选，使 Agent 自动发现）
+paper-reading install-skills
+```
+
 ### 环境变量
 
 | 变量 | 必填 | 说明 |
@@ -20,10 +33,8 @@
 | `LLM_ENDPOINT` | 是 | LLM API 地址（如 `http://127.0.0.1:11434` 或 `https://openrouter.ai/api/v1`） |
 | `LLM_API_KEY` | 否 | API Key，留空则使用 Ollama 原生协议 |
 
-### 依赖
+### 其他依赖
 
-- Python ≥ 3.12
-- 项目依赖已安装（`uv sync` 或 `uv pip install -e .`）
 - MinerU 模型已下载（参见 [MinerU 文档](https://github.com/opendatalab/MinerU)）
 
 ## 输入参数
@@ -75,26 +86,10 @@ print(result.output_file)
 ### 2. CLI
 
 ```sh
-uv run python -m paper_reading.cli \
+paper-reading \
     --file_path /path/to/paper.pdf \
     --final_md_file_save_dir /path/to/output \
     --steps summary,translate,original \
     --src_lang en \
     --target_lang zh
 ```
-
-### 3. 辅助脚本
-
-```sh
-bash .agents/skills/process-pdf/scripts/run.sh \
-    /path/to/paper.pdf \
-    /path/to/output \
-    --steps summary,translate,original
-```
-
-## 相关文件
-
-- `paper_reading/pipeline.py` — 核心处理入口 `process()`
-- `paper_reading/config.py` — `ProcessParams`、`ProcessResult` 定义
-- `paper_reading/steps.py` — 各步骤的具体实现
-- `config.yaml` — 默认配置（模型、提示词模板等）

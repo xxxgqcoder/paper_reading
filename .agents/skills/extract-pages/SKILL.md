@@ -1,3 +1,8 @@
+---
+name: extract-pages
+description: 'Extract page ranges from a PDF file into separate PDFs. Use when: extracting pages, splitting PDF, selecting pages from PDF.'
+---
+
 # Skill: extract-pages
 
 从 PDF 文件中按页码范围提取子页面，输出为新的 PDF 文件。
@@ -10,10 +15,13 @@
 
 ## 前置条件
 
-### 依赖
+### 安装
 
-- Python ≥ 3.12
-- 项目依赖已安装（`uv sync` 或 `uv pip install -e .`）
+```sh
+uv tool install paper-reading
+# 部署 Skill 到全局目录（可选，使 Agent 自动发现）
+paper-reading install-skills
+```
 
 > 此 Skill 不依赖 LLM，无需配置 `LLM_ENDPOINT` 或 `LLM_API_KEY`。
 
@@ -63,22 +71,9 @@ print(output_files)
 
 ### 2. CLI
 
-在 `config.yaml` 中配置后执行：
-
 ```sh
-uv run python -m paper_reading.cli extract-pages
+paper-reading extract-pages \
+    --input_pdf /path/to/paper.pdf \
+    --pages 1-93 "100,105-110" \
+    --output_dir /path/to/output
 ```
-
-### 3. 辅助脚本
-
-```sh
-bash .agents/skills/extract-pages/scripts/run.sh \
-    /path/to/paper.pdf \
-    "1-93" "100,105-110"
-```
-
-## 相关文件
-
-- `paper_reading/extract_pages.py` — 核心逻辑 `run_extract_pages()`
-- `paper_reading/config.py` — `ExtractPagesParams` 定义
-- `config.yaml` — CLI 模式下的默认配置

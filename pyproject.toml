@@ -43,6 +43,10 @@ paper-reading = "paper_reading.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["paper_reading"]
 
+[tool.hatch.build.targets.wheel.force-include]
+".agents/skills/process-pdf/SKILL.md" = "paper_reading/_skills/process-pdf/SKILL.md"
+".agents/skills/extract-pages/SKILL.md" = "paper_reading/_skills/extract-pages/SKILL.md"
+
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
 exclude = [
