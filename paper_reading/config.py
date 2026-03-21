@@ -133,7 +133,7 @@ class ProcessParams:
     max_context_token_num: int = 1024 * 16
 
     # 路径
-    asset_save_dir: str = ""
+    asset_save_dir: str = "attachments"
     cache_data_dir: str = "~/.cache/llm_cache"
 
     # prompt 模板

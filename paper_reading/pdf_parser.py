@@ -171,7 +171,7 @@ class PDFParser:
         os.environ["MINERU_TOOLS_CONFIG_JSON"] = runtime_config_path
         os.environ["MINERU_MODEL_SOURCE"] = conf.get("mineru_model_source", "local")
 
-    def key_generator(self, file_path) -> str:
+    def key_generator(self, file_path, **kwargs) -> str:
         file_bytes = b""
         try:
             with open(file_path, "rb") as f:
@@ -185,7 +185,8 @@ class PDFParser:
     @time_it("pdf parser")
     @cache_it(key_generator=key_generator)
     def parse(self, file_path: str, asset_save_dir: str = "") -> list[Content]:
-        os.makedirs(asset_save_dir, exist_ok=True)
+        if asset_save_dir:
+            os.makedirs(asset_save_dir, exist_ok=True)
         self.file_path = file_path
 
         temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)

@@ -165,7 +165,7 @@ def main() -> None:
         help="max input token num for summary",
     )
     parser.add_argument(
-        "--asset_save_dir", default="", help="directory to save parsed assets"
+        "--asset_save_dir", default="attachments", help="directory to save parsed assets"
     )
     parser.add_argument(
         "--cache_data_dir", default="~/.cache/llm_cache", help="disk cache directory"

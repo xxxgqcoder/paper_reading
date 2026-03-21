@@ -57,13 +57,19 @@ async def process(params: ProcessParams) -> ProcessResult:
     name_without_suff = os.path.basename(params.file_path).rsplit(".", 1)[0]
     Logger.info(f"File name without suffix: {name_without_suff}")
 
+    md_file_path = os.path.join(params.output_dir, f"{name_without_suff}.md")
+    if os.path.isfile(md_file_path) and os.path.getsize(md_file_path) > 0:
+        raise FileExistsError(
+            f"Output file already exists and is non-empty: {md_file_path}. "
+            "Remove it first if you want to regenerate."
+        )
+
     content_list = parse_pdf(
         file_path=params.file_path,
         runtime_config_path=runtime_config_path,
         asset_save_dir=params.asset_save_dir,
     )
 
-    md_file_path = os.path.join(params.output_dir, f"{name_without_suff}.md")
     Logger.info(f"md file path: {md_file_path}")
 
     ctx = StepContext(
