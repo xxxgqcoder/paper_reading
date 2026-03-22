@@ -1,18 +1,9 @@
 import os
+from dataclasses import dataclass, field
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    YamlConfigSettingsSource,
-)
+from pydantic import BaseModel, Field
 from strenum import StrEnum
-
-
-def get_project_base_directory() -> str:
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 class Step(str, Enum):
@@ -24,183 +15,54 @@ class Step(str, Enum):
 STEP_OUTPUT_ORDER: list[Step] = [Step.SUMMARY, Step.TRANSLATE, Step.ORIGINAL]
 
 
-class GenerationConf(BaseSettings):
-    temperature: float = Field(
-        default=0.7, description="Temperature for text generation."
-    )
-    top_p: float = Field(
-        default=0.3, description=" Top-p (nucleus) sampling parameter."
-    )
-    repeat_penalty: float = Field(
-        default=1.1, description=" Repetition penalty for text generation."
-    )
-    num_ctx: int = Field(
-        default=1024 * 16, description=" Maximum context length for the model."
-    )
+# ---------------------------------------------------------------------------
+# 默认 prompt 模板
+# ---------------------------------------------------------------------------
+DEFAULT_PROMPT_TRANSLATE = (
+    "你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。\n"
+    "\n"
+    "下面是需要翻译的内容：\n"
+    "\n"
+    "{content}\n"
+    "----\n"
+    "\n"
+    "注意：\n"
+    "- 如果要翻译的内容为引用文献、算法伪代码、代码、人名，"
+    "则不需要翻译，直接返回原文\n"
+    "- 你只需要输出最终翻译结果，不要输出逐步思考过程。\n"
+    "\n"
+    "现在开始逐步思考"
+)
+
+DEFAULT_PROMPT_SUMMARY = (
+    "你是一个阅读助手，阅读下面的{src_lang}内容，并完成指令。\n"
+    "\n"
+    "下面是文档内容\n"
+    "\n"
+    "{content}\n"
+    "----\n"
+    "\n"
+    "指令：使用{target_lang}语言，总结{src_lang}内容。\n"
+    "- 如果是学术论文，请总结论文的主要贡献、方法、实验和结论。\n"
+    "- 如果是技术文档，请总结技术的核心概念、功能和应用场景。\n"
+    "- 如果是一般性文档（书籍，文章等），请总结文档的主要内容和关键点。\n"
+    "\n"
+    "注意：\n"
+    "- 忽略引用部分内容，只总结文档正文部分。\n"
+    "- 你只需要输出最终总结结果，不要输出逐步思考过程。\n"
+    "\n"
+    "现在开始逐步思考"
+)
 
 
-class ExtractPagesConf(BaseModel):
-    input_pdf: str = Field(
-        default="", description="path to input PDF for page extraction"
-    )
-    pages: list[str] = Field(
-        default_factory=list,
-        description="page ranges to extract, e.g. ['1-93', '100,105-110']",
-    )
-
-
-class _Config(BaseSettings):
-    """Application configuration settings."""
-
-    asset_save_dir: str = Field(
-        "",
-        description="directory to save parsed asset files, including images and tables",
-    )
-    cache_data_dir: str = Field(
-        default="~/.cache/llm_cache", description="cache data directory"
-    )
-    max_context_token_num: int = Field(
-        default=1024 * 16, description="max context token num"
-    )
-    gen_conf: GenerationConf = Field(
-        default_factory=GenerationConf, description="Generation configuration."
-    )
-    llm_endpoint: str = Field(
-        default="http://127.0.0.1:11434",
-        description=(
-            "LLM API endpoint URL."
-            " Also reads from env var LLM_ENDPOINT."
-        ),
-    )
-    llm_api_key: str = Field(
-        default="",
-        description=(
-            "LLM API key (empty = Ollama native,"
-            " non-empty = OpenAI-compatible)."
-            " Also reads from env var LLM_API_KEY."
-        ),
-    )
-    chat_model_name: str = Field(default="llama3", description="chat model name")
-    vision_model_name: str = Field(default="llama3", description="vision model name")
-
-    steps: str = Field(
-        default="summary,translate,original",
-        description="comma-separated processing steps",
-    )
-    src_lang: str = Field(default="en", description="source language code (en/zh)")
-    target_lang: str = Field(default="zh", description="target language code (en/zh)")
-    temp_content_dir: str = Field(
-        default="./tmp/parsed_asset",
-        description="temp directory for parsed content",
-    )
-
-    extract_pages: ExtractPagesConf = Field(
-        default_factory=ExtractPagesConf,
-        description="configuration for extract-pages command",
-    )
-
-    prompt_translate: str = Field(
-        default=(
-            "你是一个翻译助手，请将下面的{src_lang}内容翻译成{target_lang}。\n"
-            "\n"
-            "下面是需要翻译的内容：\n"
-            "\n"
-            "{content}\n"
-            "----\n"
-            "\n"
-            "注意：\n"
-            "- 如果要翻译的内容为引用文献、算法伪代码、代码、人名，"
-            "则不需要翻译，直接返回原文\n"
-            "- 你只需要输出最终翻译结果，不要输出逐步思考过程。\n"
-            "\n"
-            "现在开始逐步思考"
-        ),
-        description=(
-            "Translation prompt template."
-            " Placeholders: {src_lang}, {target_lang}, {content}"
-        ),
-    )
-    prompt_summary: str = Field(
-        default=(
-            "你是一个阅读助手，阅读下面的{src_lang}内容，并完成指令。\n"
-            "\n"
-            "下面是文档内容\n"
-            "\n"
-            "{content}\n"
-            "----\n"
-            "\n"
-            "指令：使用{target_lang}语言，总结{src_lang}内容。\n"
-            "- 如果是学术论文，请总结论文的主要贡献、方法、实验和结论。\n"
-            "- 如果是技术文档，请总结技术的核心概念、功能和应用场景。\n"
-            "- 如果是一般性文档（书籍，文章等），请总结文档的主要内容和关键点。\n"
-            "\n"
-            "注意：\n"
-            "- 忽略引用部分内容，只总结文档正文部分。\n"
-            "- 你只需要输出最终总结结果，不要输出逐步思考过程。\n"
-            "\n"
-            "现在开始逐步思考"
-        ),
-        description=(
-            "Summary prompt template."
-            " Placeholders: {src_lang}, {target_lang}, {content}"
-        ),
-    )
-
-    model_config = SettingsConfigDict(
-        yaml_file=os.path.join(get_project_base_directory(), "config.yaml"),
-        env_prefix="CONFIG@@",
-        env_nested_delimiter="@@",
-        nested_model_default_partial_update=True,
-    )
-
-    @field_validator("llm_endpoint", mode="after")
-    @classmethod
-    def resolve_endpoint_from_env(cls, v: str) -> str:
-        """Fall back to LLM_ENDPOINT env var when config value is default."""
-        env = os.environ.get("LLM_ENDPOINT", "")
-        return env if env else v
-
-    @field_validator("llm_api_key", mode="after")
-    @classmethod
-    def resolve_api_key_from_env(cls, v: str) -> str:
-        """Fall back to LLM_API_KEY env var when config value is empty."""
-        if not v:
-            v = os.environ.get("LLM_API_KEY", "")
-        return v
-
-    @field_validator(
-        "cache_data_dir",
-        "asset_save_dir",
-        "temp_content_dir",
-        mode="after",
-    )
-    @classmethod
-    def expand_home_path(cls, v: str) -> str:
-        """Expand ~ and resolve relative paths against project base directory."""
-        if v:
-            v = os.path.expanduser(v)
-            if not os.path.isabs(v):
-                v = os.path.join(get_project_base_directory(), v)
-            return os.path.abspath(v)
-        return v
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        yaml_path = os.path.join(get_project_base_directory(), "config.yaml")
-        sources: list[PydanticBaseSettingsSource] = [env_settings]
-        if os.path.exists(yaml_path):
-            sources.append(YamlConfigSettingsSource(settings_cls))
-        return tuple(sources)
-
-
-Config = _Config()  # type: ignore
+def _default_gen_conf() -> dict:
+    """默认生成参数。"""
+    return {
+        "temperature": 0.7,
+        "top_p": 0.3,
+        "repeat_penalty": 1.1,
+        "num_ctx": 1024 * 16,
+    }
 
 
 class ContentType(StrEnum):
@@ -235,3 +97,73 @@ class Content(BaseModel):
 
 
 LANG_MAPPING = {"en": "英语", "zh": "中文"}
+
+
+def _expand_path(v: str) -> str:
+    """展开 ~ 并转为绝对路径。"""
+    if v:
+        v = os.path.expanduser(v)
+        return os.path.abspath(v)
+    return v
+
+
+# ---------------------------------------------------------------------------
+# AI Tool / Skill 调用入参与返回值
+# ---------------------------------------------------------------------------
+@dataclass
+class ProcessParams:
+    """每次调用 process() 的独立参数，AI 调用方只需构造此对象。"""
+
+    file_path: str
+    output_dir: str
+    steps: list[str] = field(
+        default_factory=lambda: ["summary", "translate", "original"]
+    )
+    src_lang: str = "en"
+    target_lang: str = "zh"
+
+    # LLM 连接
+    llm_endpoint: str = ""
+    llm_api_key: str = ""
+
+    # 模型与生成参数
+    chat_model_name: str = "llama3"
+    vision_model_name: str = "llama3"
+    gen_conf: dict = field(default_factory=_default_gen_conf)
+    max_context_token_num: int = 1024 * 16
+
+    # 路径
+    asset_save_dir: str = "attachments"
+    cache_data_dir: str = "~/.cache/llm_cache"
+
+    # prompt 模板
+    prompt_translate: str = DEFAULT_PROMPT_TRANSLATE
+    prompt_summary: str = DEFAULT_PROMPT_SUMMARY
+
+    def __post_init__(self) -> None:
+        # 从环境变量回退读取 LLM 连接信息
+        if not self.llm_endpoint:
+            self.llm_endpoint = os.environ.get("LLM_ENDPOINT", "")
+        if not self.llm_api_key:
+            self.llm_api_key = os.environ.get("LLM_API_KEY", "")
+        # 路径展开
+        self.asset_save_dir = _expand_path(self.asset_save_dir)
+        self.cache_data_dir = _expand_path(self.cache_data_dir)
+
+
+@dataclass
+class ProcessResult:
+    """process() 的结构化返回值。"""
+
+    output_file: str
+    steps_completed: list[str]
+    elapsed_seconds: float
+
+
+@dataclass
+class ExtractPagesParams:
+    """每次调用 run_extract_pages() 的独立参数，AI 调用方只需构造此对象。"""
+
+    input_pdf: str
+    pages: list[str]
+    output_dir: str | None = None

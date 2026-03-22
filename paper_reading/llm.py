@@ -1,18 +1,67 @@
+import asyncio
 import json
 import time
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .config import Config
 from .log import Logger
 from .utils import cache_it, hash64, time_it
+
+# Ollama 本地推理并发量低，API 服务可并发更多
+_CONCURRENCY_OLLAMA = 1
+_CONCURRENCY_API = 10
+
+# 兼容将本地 / Ollama 风格模型名映射为 OpenRouter 官方模型 ID
+_OPENROUTER_MODEL_ALIASES = {
+    "qwen3.5-flash": "qwen/qwen3.5-flash-02-23",
+    "qwen2.5vl:7b": "qwen/qwen-2.5-vl-7b-instruct",
+    "qwen2.5-vl:7b": "qwen/qwen-2.5-vl-7b-instruct",
+}
+_LOGGED_MODEL_RESOLUTIONS: set[tuple[str, str]] = set()
+_LOGGED_MODEL_WARNINGS: set[tuple[str, str]] = set()
+
+
+def _is_openrouter_endpoint(endpoint: str) -> bool:
+    return "openrouter.ai" in endpoint
+
+
+def resolve_model_name(model: str, endpoint: str) -> str:
+    if not _is_openrouter_endpoint(endpoint):
+        return model
+
+    resolved = _OPENROUTER_MODEL_ALIASES.get(model, model)
+    log_key = (endpoint, model)
+
+    if resolved != model and log_key not in _LOGGED_MODEL_RESOLUTIONS:
+        Logger.info(f"Resolved model alias for OpenRouter: {model} -> {resolved}")
+        _LOGGED_MODEL_RESOLUTIONS.add(log_key)
+    elif (
+        resolved == model
+        and "/" not in model
+        and log_key not in _LOGGED_MODEL_WARNINGS
+    ):
+        Logger.warning(
+            f"Model name '{model}' may be invalid for OpenRouter. "
+            "Prefer provider-prefixed IDs such as 'qwen/qwen3-32b'."
+        )
+        _LOGGED_MODEL_WARNINGS.add(log_key)
+
+    return resolved
+
+
+def _resolve_chat_model(model: str, endpoint: str) -> str:
+    return resolve_model_name(model, endpoint)
+
+
+def _resolve_vision_model(model: str, endpoint: str) -> str:
+    return resolve_model_name(model, endpoint)
 
 
 class LLMBackend(ABC):
     """Abstract base class for LLM API backends."""
 
     @abstractmethod
-    def chat(
+    async def chat(
         self,
         model: str,
         messages: list[dict[str, Any]],
@@ -20,7 +69,7 @@ class LLMBackend(ABC):
     ) -> str | None: ...
 
     @abstractmethod
-    def vision_chat(
+    async def vision_chat(
         self,
         model: str,
         prompt: str,
@@ -41,9 +90,9 @@ class OllamaBackend(LLMBackend):
     }
 
     def __init__(self, host: str, timeout: int = 15 * 60):
-        from ollama import Client as OllamaClient
+        from ollama import AsyncClient as OllamaAsyncClient
 
-        self._client = OllamaClient(host=host, timeout=timeout)
+        self._client = OllamaAsyncClient(host=host, timeout=timeout)
 
     def _build_options(self, gen_conf: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -66,8 +115,8 @@ class OllamaBackend(LLMBackend):
                 f"speed={gen_tps:.1f} tok/s, total={total_s:.1f}s"
             )
 
-    def chat(self, model, messages, gen_conf):
-        resp = self._client.chat(
+    async def chat(self, model, messages, gen_conf):
+        resp = await self._client.chat(
             model=model,
             messages=messages,
             options=self._build_options(gen_conf),
@@ -76,8 +125,8 @@ class OllamaBackend(LLMBackend):
         self._log_token_stats(resp)
         return resp["message"]["content"] if resp else None
 
-    def vision_chat(self, model, prompt, image_b64, gen_conf):
-        resp = self._client.chat(
+    async def vision_chat(self, model, prompt, image_b64, gen_conf):
+        resp = await self._client.chat(
             model=model,
             messages=[{"role": "user", "content": prompt, "images": [image_b64]}],
             options=self._build_options(gen_conf),
@@ -89,14 +138,14 @@ class OllamaBackend(LLMBackend):
 class OpenAIBackend(LLMBackend):
     def __init__(self, api_key: str, base_url: str = "", timeout: int = 15 * 60):
         try:
-            from openai import OpenAI
+            from openai import AsyncOpenAI
         except ImportError as exc:
             raise ImportError(
                 "openai package required for OpenAI backend. "
                 "Install with: pip install openai"
             ) from exc
 
-        self._client = OpenAI(
+        self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url or None,
             timeout=timeout,
@@ -136,9 +185,9 @@ class OpenAIBackend(LLMBackend):
             f"speed={gen_tps:.1f} tok/s, elapsed={elapsed:.1f}s"
         )
 
-    def chat(self, model, messages, gen_conf):
+    async def chat(self, model, messages, gen_conf):
         t0 = time.monotonic()
-        resp = self._client.chat.completions.create(
+        resp = await self._client.chat.completions.create(
             model=model,
             messages=messages,
             **self._build_params(gen_conf),
@@ -148,7 +197,7 @@ class OpenAIBackend(LLMBackend):
             return resp.choices[0].message.content
         return None
 
-    def vision_chat(self, model, prompt, image_b64, gen_conf):
+    async def vision_chat(self, model, prompt, image_b64, gen_conf):
         messages: list[dict[str, Any]] = [
             {
                 "role": "user",
@@ -162,7 +211,7 @@ class OpenAIBackend(LLMBackend):
             }
         ]
         t0 = time.monotonic()
-        resp = self._client.chat.completions.create(
+        resp = await self._client.chat.completions.create(
             model=model,
             messages=messages,
             **self._build_params(gen_conf),
@@ -173,22 +222,42 @@ class OpenAIBackend(LLMBackend):
         return None
 
 
-_llm_backend: LLMBackend | None = None
+_llm_backends: dict[tuple[str, str], LLMBackend] = {}
+_llm_semaphores: dict[tuple[str, str], asyncio.Semaphore] = {}
 
 
-def _get_llm_backend() -> LLMBackend:
-    global _llm_backend
-    if _llm_backend is None:
-        if Config.llm_api_key:
-            _llm_backend = OpenAIBackend(
-                api_key=Config.llm_api_key,
-                base_url=Config.llm_endpoint,
+def _get_llm_backend(endpoint: str, api_key: str) -> LLMBackend:
+    """按 (endpoint, api_key) 缓存 backend 实例，支持多配置场景。"""
+    cache_key = (endpoint, api_key)
+    if cache_key not in _llm_backends:
+        if api_key:
+            _llm_backends[cache_key] = OpenAIBackend(
+                api_key=api_key,
+                base_url=endpoint,
             )
-            Logger.info(f"Using OpenAI-compatible backend: {Config.llm_endpoint}")
+            _llm_semaphores[cache_key] = asyncio.Semaphore(
+                _CONCURRENCY_API
+            )
+            Logger.info(
+                f"Using OpenAI-compatible backend: {endpoint},"
+                f" max_concurrency={_CONCURRENCY_API}"
+            )
         else:
-            _llm_backend = OllamaBackend(host=Config.llm_endpoint)
-            Logger.info(f"Using Ollama backend: {Config.llm_endpoint}")
-    return _llm_backend
+            _llm_backends[cache_key] = OllamaBackend(host=endpoint)
+            _llm_semaphores[cache_key] = asyncio.Semaphore(
+                _CONCURRENCY_OLLAMA
+            )
+            Logger.info(
+                f"Using Ollama backend: {endpoint},"
+                f" max_concurrency={_CONCURRENCY_OLLAMA}"
+            )
+    return _llm_backends[cache_key]
+
+
+def _get_llm_semaphore(endpoint: str, api_key: str) -> asyncio.Semaphore:
+    """获取当前 backend 对应的并发信号量。"""
+    cache_key = (endpoint, api_key)
+    return _llm_semaphores[cache_key]
 
 
 def _strip_thinking_tags(text: str) -> str:
@@ -202,24 +271,34 @@ def _strip_thinking_tags(text: str) -> str:
 
 @time_it(prefix="llm chat")
 @cache_it(
-    key_generator=lambda prompt, gen_conf: (
+    key_generator=lambda prompt, gen_conf, model, endpoint, api_key: (
         "llm_chat::"
-        + hash64(f"{Config.llm_endpoint}::{Config.chat_model_name}".encode())
+        + hash64(f"{endpoint}::{resolve_model_name(model, endpoint)}".encode())
         + "::prompt_hash::"
         + hash64(f"{prompt}_{json.dumps(gen_conf, default=str)}".encode())
     )
 )
-def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
+async def llm_chat(
+    prompt: str,
+    gen_conf: dict[str, Any],
+    model: str,
+    endpoint: str,
+    api_key: str,
+) -> str | None:
+    backend = _get_llm_backend(endpoint, api_key)
+    semaphore = _get_llm_semaphore(endpoint, api_key)
     messages = [{"role": "user", "content": prompt}]
-    try:
-        ans = _get_llm_backend().chat(
-            model=Config.chat_model_name,
-            messages=messages,
-            gen_conf=gen_conf,
-        )
-    except Exception as e:
-        Logger.error(f"LLM chat exception: {e}")
-        return None
+    chat_model_name = _resolve_chat_model(model, endpoint)
+    async with semaphore:
+        try:
+            ans = await backend.chat(
+                model=chat_model_name,
+                messages=messages,
+                gen_conf=gen_conf,
+            )
+        except Exception as e:
+            Logger.error(f"LLM chat exception: {e}")
+            return None
     if not ans:
         return None
     return _strip_thinking_tags(ans)
@@ -227,9 +306,9 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
 
 @time_it(prefix="image chat")
 @cache_it(
-    key_generator=lambda prompt, image_content, gen_conf: (
+    key_generator=lambda prompt, image_content, gen_conf, model, endpoint, api_key: (
         "image_chat::"
-        + hash64(f"{Config.llm_endpoint}::{Config.vision_model_name}".encode())
+        + hash64(f"{endpoint}::{resolve_model_name(model, endpoint)}".encode())
         + "::prompt_hash::"
         + hash64(
             (prompt + image_content + json.dumps(gen_conf, default=str)).encode(
@@ -238,18 +317,25 @@ def llm_chat(prompt: str, gen_conf: dict[str, Any]) -> str | None:
         )
     )
 )
-def image_chat(
+async def image_chat(
     prompt: str,
     image_content: str,
     gen_conf: dict[str, Any],
+    model: str,
+    endpoint: str,
+    api_key: str,
 ) -> str | None:
-    try:
-        return _get_llm_backend().vision_chat(
-            model=Config.vision_model_name,
-            prompt=prompt,
-            image_b64=image_content,
-            gen_conf=gen_conf,
-        )
-    except Exception as e:
-        Logger.error(f"Vision model chat exception: {e}")
-        return None
+    backend = _get_llm_backend(endpoint, api_key)
+    semaphore = _get_llm_semaphore(endpoint, api_key)
+    vision_model_name = _resolve_vision_model(model, endpoint)
+    async with semaphore:
+        try:
+            return await backend.vision_chat(
+                model=vision_model_name,
+                prompt=prompt,
+                image_b64=image_content,
+                gen_conf=gen_conf,
+            )
+        except Exception as e:
+            Logger.error(f"Vision model chat exception: {e}")
+            return None
