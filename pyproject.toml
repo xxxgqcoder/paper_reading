@@ -42,7 +42,7 @@ paper-reading = "paper_reading.cli:main"
 packages = ["paper_reading"]
 
 [tool.hatch.build.targets.wheel.force-include]
-".agents/skills/process-pdf/SKILL.md" = "paper_reading/_skills/process-pdf/SKILL.md"
+".agents/skills/digest-to-md/SKILL.md" = "paper_reading/_skills/digest-to-md/SKILL.md"
 ".agents/skills/extract-pages/SKILL.md" = "paper_reading/_skills/extract-pages/SKILL.md"
 
 [tool.ruff]

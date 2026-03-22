@@ -155,7 +155,7 @@ paper-reading \
 
 | Skill | 功能 | 文档 |
 |-------|------|------|
-| **process-pdf** | 解析 PDF、生成摘要、翻译文本，输出 Markdown | [SKILL.md](.agents/skills/process-pdf/SKILL.md) |
+| **digest-to-md** | 解析 PDF、生成摘要、翻译文本，输出 Markdown | [SKILL.md](.agents/skills/digest-to-md/SKILL.md) |
 | **extract-pages** | 按页码范围从 PDF 提取子页面 | [SKILL.md](.agents/skills/extract-pages/SKILL.md) |
 
 ### 安装 Skill
