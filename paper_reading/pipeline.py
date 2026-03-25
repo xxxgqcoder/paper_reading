@@ -41,7 +41,7 @@ async def process(params: ProcessParams) -> ProcessResult:
 
     chat_model = params.chat_model_name
     vision_model = params.vision_model_name
-    gen_conf = params.gen_conf
+    gen_conf = params.gen_conf.model_dump()
 
     src_lang_display = LANG_MAPPING.get(params.src_lang, params.src_lang)
     target_lang_display = LANG_MAPPING.get(params.target_lang, params.target_lang)

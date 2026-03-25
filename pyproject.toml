@@ -12,7 +12,7 @@ dependencies = [
     "mineru[core]",
     "modelscope",
     "ollama",
-    "pydantic",
+    "pydantic>=2.0.0",
     "pypdf",
     "tiktoken",
     "xxhash",

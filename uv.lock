@@ -2388,7 +2388,7 @@ requires-dist = [
     { name = "ollama" },
     { name = "openai", specifier = ">=1.109.1" },
     { name = "openai", marker = "extra == 'openai'" },
-    { name = "pydantic" },
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pypdf" },
     { name = "strenum" },
     { name = "tiktoken" },
