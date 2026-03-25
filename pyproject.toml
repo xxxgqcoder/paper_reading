@@ -8,7 +8,6 @@ dependencies = [
     "StrEnum",
     "diskcache",
     "huggingface-hub",
-    "jupyterlab",
     "mineru[core]",
     "modelscope",
     "ollama",
@@ -16,10 +15,6 @@ dependencies = [
     "pypdf",
     "tiktoken",
     "xxhash",
-    "torch",
-    "doclayout_yolo",
-    "ultralytics",
-    "transformers",
     "ftfy",
     "openai>=1.109.1",
 ]
