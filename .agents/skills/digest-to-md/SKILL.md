@@ -9,7 +9,7 @@ description: 'Digest academic PDF papers by summarizing and translating them int
 
 ## 功能
 
-- **PDF 解析**：使用 MinerU 解析 PDF 版面，提取文本、图像与表格
+- **PDF 解析**：使用 OpenDataLoader (基于 Docker) 解析 PDF 版面，提取高质量文本、图像与表格
 - **内容总结**：通过 LLM 生成文档摘要
 - **内容翻译**：通过 LLM 将文档翻译为目标语言
 - **原文保留**：将解析后的原始内容写入 Markdown
@@ -26,6 +26,20 @@ uv tool install paper-reading
 paper-reading install-skills
 ```
 
+### Docker 环境
+
+必须先构建并启动 OpenDataLoader Docker 服务（使用仓库提供的 `Dockerfile`）：
+```bash
+# 构建镜像（只需一次）
+docker build -t opendataloader-api-server /path/to/paper_reading/paper_reading/
+
+# 启动容器
+docker run -d --name opendataloader-api-server \
+  -v /absolute/host/path:/data \
+  -p 5002:5002 \
+  opendataloader-api-server
+```
+
 ### 环境变量
 
 | 变量 | 必填 | 说明 |
@@ -33,18 +47,17 @@ paper-reading install-skills
 | `LLM_ENDPOINT` | 是 | LLM API 地址（如 `http://127.0.0.1:11434` 或 `https://openrouter.ai/api/v1`） |
 | `LLM_API_KEY` | 否 | API Key，留空则使用 Ollama 原生协议 |
 
-### 其他依赖
-
-- MinerU 模型已下载（参见 [MinerU 文档](https://github.com/opendatalab/MinerU)）
-
 ## 输入参数
 
 通过 `ProcessParams` 传入：
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|
-| `file_path` | `str` | 是 | — | 输入 PDF 文件的绝对路径 |
-| `output_dir` | `str` | 是 | — | 输出 Markdown 文件的目录 |
+| `file_path` | `str` | 是 | — | 输入 PDF 文件的**宿主机绝对路径** |
+| `output_dir` | `str` | 是 | — | 输出 Markdown 文件的**宿主机绝对路径** |
+| `odl_volume_host_dir` | `str` | 是 | — | 挂载到容器 `/data` 的宿主机绝对路径 |
+| `odl_hybrid_mode` | `str` | 否 | `"full"` | 解析模式：`full` 或 `auto` |
+| `odl_container_name` | `str` | 否 | `"opendataloader-api-server"` | Docker 容器名称 |
 | `steps` | `list[str]` | 否 | `["summary", "translate", "original"]` | 执行的步骤列表 |
 | `src_lang` | `str` | 否 | `"en"` | 源语言代码 |
 | `target_lang` | `str` | 否 | `"zh"` | 目标语言代码 |
@@ -92,8 +105,10 @@ print(result.output_file)
 
 ```sh
 paper-reading \
-    --file_path /path/to/paper.pdf \
-    --final_md_file_save_dir /path/to/output \
+    --file_path /path/to/host_data/paper.pdf \
+    --final_md_file_save_dir /path/to/host_data/output \
+    --odl_volume_host_dir /path/to/host_data \
+    --odl_hybrid_mode full \
     --steps summary,translate,original \
     --src_lang en \
     --target_lang zh \

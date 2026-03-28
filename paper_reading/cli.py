@@ -211,9 +211,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--odl_hybrid_mode",
-        default="auto",
+        default="full",
         choices=["auto", "full"],
-        help="OpenDataLoader hybrid mode: auto (default) or full (highest accuracy, high memory)",
+        help="OpenDataLoader hybrid mode: full (default, highest accuracy, high memory) or auto",
     )
 
     # --- extract-pages 参数 ---
