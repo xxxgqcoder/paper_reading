@@ -1,9 +1,10 @@
 import json
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+import fitz  # pymupdf
 
 from .config import Content, ContentType
 from .log import Logger
@@ -151,6 +152,8 @@ class OpenDataLoaderParser:
                     output_dir=output_dir,
                     asset_save_dir=asset_save_dir,
                     file_path=file_path,
+                    page_number=page,
+                    bbox=bbox,
                 )
                 if content:
                     contents.append(content)
@@ -208,30 +211,87 @@ class OpenDataLoaderParser:
         output_dir: str,
         asset_save_dir: str,
         file_path: str,
+        page_number: int = 0,
+        bbox: list[float] | None = None,
     ) -> Content | None:
-        """处理图片元素：以 UUID 命名复制到 asset_save_dir，返回 Content 对象。"""
+        """处理图片元素：优先用 pymupdf 从原始 PDF 高 DPI 光栅化对应区域，
+        若失败则回退至直接复制 OpenDataLoader 提取的图片。"""
         src_path = os.path.join(output_dir, source)
         if not os.path.isfile(src_path):
             Logger.warning(f"Image file not found: {src_path}")
             return None
 
-        ext = Path(source).suffix
-        with open(src_path, "rb") as _f:
-            img_bytes = _f.read()
+        # 尝试用 pymupdf 以高 DPI 光栅化 PDF 中的图片区域
+        img_bytes: bytes | None = None
+        if bbox and page_number > 0:
+            img_bytes = self._render_image_from_pdf(
+                pdf_path=file_path,
+                page_number=page_number,
+                bbox=bbox,
+                dpi=300,
+            )
+
+        if img_bytes is None:
+            # 回退：直接读取 OpenDataLoader 提取的图片
+            with open(src_path, "rb") as _f:
+                img_bytes = _f.read()
+            ext = Path(source).suffix
+        else:
+            ext = ".png"
+
         # 基于图片内容生成确定性文件名，相同内容始终得到相同文件名
         content_hash = hash64(img_bytes)
         new_name = content_hash + ext
         dst_path = os.path.join(asset_save_dir, new_name)
-        shutil.copyfile(src_path, dst_path)
+        with open(dst_path, "wb") as _f:
+            _f.write(img_bytes)
         Logger.info(f"Saved image with content-hash name: {dst_path}")
 
         return Content(
             content_type=ContentType.IMAGE,
             file_path=file_path,
-            content=load_base64_image(src_path),
+            content=load_base64_image(dst_path),
             extra_description="",
             content_url=dst_path,
         )
+
+    def _render_image_from_pdf(
+        self,
+        pdf_path: str,
+        page_number: int,
+        bbox: list[float],
+        dpi: int = 300,
+    ) -> bytes | None:
+        """使用 pymupdf 从原始 PDF 按 bbox 裁剪并高 DPI 光栅化，返回 PNG bytes。
+
+        OpenDataLoader bbox 格式：[x0, y0, x1, y1]，PDF 标准坐标（原点左下，y 向上）。
+        fitz 使用屏幕坐标（原点左上，y 向下），需要做 y 轴翻转：
+          fitz_y = page_height - pdf_y
+        """
+        try:
+            doc = fitz.open(pdf_path)
+            # OpenDataLoader 页码从 1 开始
+            page = doc[page_number - 1]
+            page_height = page.rect.height
+
+            # 将 PDF 标准坐标转换为 fitz 屏幕坐标
+            x0, y0_pdf, x1, y1_pdf = bbox
+            fitz_y0 = page_height - y1_pdf  # PDF y1（上边）→ fitz 顶部
+            fitz_y1 = page_height - y0_pdf  # PDF y0（下边）→ fitz 底部
+
+            clip = fitz.Rect(x0, fitz_y0, x1, fitz_y1)
+            mat = fitz.Matrix(dpi / 72, dpi / 72)
+            pix = page.get_pixmap(matrix=mat, clip=clip)
+            png_bytes: bytes = pix.tobytes("png")
+            doc.close()
+            Logger.info(
+                f"Rendered page {page_number} bbox {bbox} at {dpi} DPI:"
+                f" {pix.width}x{pix.height}"
+            )
+            return png_bytes
+        except Exception as e:
+            Logger.warning(f"Failed to render image from PDF: {e}")
+            return None
 
     def _list_to_text(self, list_elem: dict[str, Any]) -> str:
         """将 list 元素转换为 Markdown 列表文本。"""
