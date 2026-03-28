@@ -150,6 +150,20 @@ class ProcessParams(BaseModel):
         description="磁盘缓存目录"
     )
 
+    # OpenDataLoader Docker 配置
+    odl_container_name: str = Field(
+        default="opendataloader-api-server",
+        description="OpenDataLoader Docker 容器名称",
+    )
+    odl_volume_host_dir: str = Field(
+        default="",
+        description="挂载到容器 /data 的宿主机目录绝对路径（需与 docker run -v 一致）",
+    )
+    odl_hybrid_mode: str = Field(
+        default="auto",
+        description="Hybrid 模式：auto（自动分流，默认）或 full（全页 AI，最高精度但内存占用大）",
+    )
+
     # prompt 模板
     prompt_translate: str = Field(
         default=DEFAULT_PROMPT_TRANSLATE,
@@ -177,6 +191,8 @@ class ProcessParams(BaseModel):
             self.output_dir = _expand_path(self.output_dir)
         if self.file_path:
             self.file_path = _expand_path(self.file_path)
+        if self.odl_volume_host_dir:
+            self.odl_volume_host_dir = _expand_path(self.odl_volume_host_dir)
             
         return self
 

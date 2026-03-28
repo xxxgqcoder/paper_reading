@@ -9,17 +9,19 @@ from .config import (
     ProcessResult,
 )
 from .log import Logger
-from .pdf_parser import PDFParser, ensure_mineru_model, prepare_mineru_runtime_config
+from .pdf_parser import OpenDataLoaderParser
 from .steps import STEP_REGISTRY, StepContext, parse_steps
 from .utils import line_breaker, time_it
 
 
 @time_it(prefix="parse_pdf")
 def parse_pdf(
-    file_path: str, runtime_config_path: str, asset_save_dir: str
+    file_path: str, container_name: str, volume_host_dir: str, hybrid_mode: str, asset_save_dir: str
 ) -> list[Content]:
     Logger.info(f"Begin to parse file: {file_path}")
-    parser = PDFParser(runtime_config_path)
+    parser = OpenDataLoaderParser(
+        container_name=container_name, volume_host_dir=volume_host_dir, hybrid_mode=hybrid_mode
+    )
     content_list = parser.parse(file_path, asset_save_dir=asset_save_dir)
     Logger.info(f"Parsed {len(content_list)} contents from {file_path}")
     return content_list
@@ -50,9 +52,6 @@ async def process(params: ProcessParams) -> ProcessResult:
     step_names = [s.value for s in STEP_OUTPUT_ORDER if s in enabled_steps]
     Logger.info(f"Processing started, enabled steps: {step_names}")
 
-    model_dir = ensure_mineru_model()
-    runtime_config_path = prepare_mineru_runtime_config(model_dir)
-
     os.makedirs(params.output_dir, exist_ok=True)
     name_without_suff = os.path.basename(params.file_path).rsplit(".", 1)[0]
     Logger.info(f"File name without suffix: {name_without_suff}")
@@ -66,7 +65,9 @@ async def process(params: ProcessParams) -> ProcessResult:
 
     content_list = parse_pdf(
         file_path=params.file_path,
-        runtime_config_path=runtime_config_path,
+        container_name=params.odl_container_name,
+        volume_host_dir=params.odl_volume_host_dir,
+        hybrid_mode=params.odl_hybrid_mode,
         asset_save_dir=params.asset_save_dir,
     )
 

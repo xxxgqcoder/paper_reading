@@ -199,6 +199,22 @@ def main() -> None:
         default=os.environ.get("LLM_API_KEY", ""),
         help="LLM API key (default: env LLM_API_KEY)",
     )
+    parser.add_argument(
+        "--odl_container_name",
+        default="opendataloader-api-server",
+        help="OpenDataLoader Docker container name (default: opendataloader-api-server)",
+    )
+    parser.add_argument(
+        "--odl_volume_host_dir",
+        default=os.environ.get("ODL_VOLUME_HOST_DIR", ""),
+        help="Host directory mounted as /data in the OpenDataLoader container (default: env ODL_VOLUME_HOST_DIR)",
+    )
+    parser.add_argument(
+        "--odl_hybrid_mode",
+        default="auto",
+        choices=["auto", "full"],
+        help="OpenDataLoader hybrid mode: auto (default) or full (highest accuracy, high memory)",
+    )
 
     # --- extract-pages 参数 ---
     parser.add_argument("--input_pdf", help="path to input PDF (for extract-pages)")
@@ -302,6 +318,9 @@ def main() -> None:
                 max_context_token_num=args.max_context_token_num,
                 asset_save_dir=args.asset_save_dir,
                 cache_data_dir=args.cache_data_dir,
+                odl_container_name=args.odl_container_name,
+                odl_volume_host_dir=args.odl_volume_host_dir,
+                odl_hybrid_mode=args.odl_hybrid_mode,
             )
     except Exception as e:
         print(json.dumps({"status": "error", "error": f"Invalid configuration: {e}"}, ensure_ascii=False))
