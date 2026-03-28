@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,21 @@ class OpenDataLoaderParser:
 
         pdf_filename = os.path.basename(file_path)
         pdf_stem = Path(file_path).stem
+
+        # 如果 file_path 不在 volume_host_dir 下，或者 ODL 挂载路径不匹配，
+        # 则将文件拷贝到 volume_host_dir 下以便容器访问。
+        file_path_abs = os.path.abspath(file_path)
+        volume_host_dir_abs = os.path.abspath(self.volume_host_dir)
+        
+        target_pdf_path = os.path.join(volume_host_dir_abs, pdf_filename)
+        if not file_path_abs.startswith(volume_host_dir_abs):
+            Logger.warning(f"File {file_path_abs} is outside of volume_host_dir {volume_host_dir_abs}. Copying to it...")
+            import shutil
+            shutil.copy2(file_path_abs, target_pdf_path)
+        elif not os.path.exists(target_pdf_path):
+             # 即使在目录下，如果文件名不一致（软链接等情况），也确保目标路径存在
+             import shutil
+             shutil.copy2(file_path_abs, target_pdf_path)
 
         self._ensure_container_running()
 
