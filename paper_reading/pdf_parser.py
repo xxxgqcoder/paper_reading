@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,8 @@ class OpenDataLoaderParser:
         pdf_filename = os.path.basename(file_path)
         pdf_stem = Path(file_path).stem
 
+        self._ensure_container_running()
+
         Logger.info(f"Parsing PDF via OpenDataLoader container: {self.container_name}")
         result = subprocess.run(
             [
@@ -114,6 +117,78 @@ class OpenDataLoaderParser:
             asset_save_dir=asset_save_dir,
             file_path=file_path,
         )
+
+    def _ensure_container_running(self) -> None:
+        """确保 OpenDataLoader Docker 容器正在运行。
+
+        若 Docker 镜像不存在，则从包内 Dockerfile 本地构建；
+        若容器未运行，则删除已停止的同名容器并重新启动；
+        最后等待混合服务就绪。
+        """
+        # 检查容器是否正在运行
+        inspect = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", self.container_name],
+            capture_output=True,
+            text=True,
+        )
+        if inspect.returncode == 0 and inspect.stdout.strip() == "true":
+            return  # 容器已在运行
+
+        image_name = self.container_name  # 镜像名与容器名保持一致
+
+        # 检查 Docker 镜像是否存在
+        img_check = subprocess.run(
+            ["docker", "images", "-q", image_name],
+            capture_output=True,
+            text=True,
+        )
+        if not img_check.stdout.strip():
+            # 镜像不存在，从随 skill 一起分发的 Dockerfile 本地构建
+            dockerfile_dir = os.path.dirname(os.path.abspath(__file__))
+            Logger.info(
+                f"Docker image '{image_name}' not found. "
+                f"Building from {dockerfile_dir}/Dockerfile ..."
+            )
+            build = subprocess.run(
+                ["docker", "build", "-t", image_name, dockerfile_dir],
+            )
+            if build.returncode != 0:
+                raise RuntimeError(
+                    f"Docker build failed (exit {build.returncode}). "
+                    "Check that Docker is running and you have internet access."
+                )
+            Logger.info(f"Docker image '{image_name}' built successfully.")
+
+        # 删除已停止的同名容器（若有），避免名称冲突
+        subprocess.run(
+            ["docker", "rm", "-f", self.container_name],
+            capture_output=True,
+            text=True,
+        )
+
+        # 启动容器，将 volume_host_dir 挂载至 /data
+        Logger.info(f"Starting container '{self.container_name}' ...")
+        run = subprocess.run(
+            [
+                "docker", "run", "-d",
+                "--name", self.container_name,
+                "-v", f"{self.volume_host_dir}:/data",
+                "-p", "5002:5002",
+                image_name,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if run.returncode != 0:
+            raise RuntimeError(
+                f"Failed to start container '{self.container_name}' "
+                f"(exit {run.returncode}): {run.stderr}"
+            )
+
+        # 等待 hybrid API 服务就绪（服务启动需要一定时间）
+        Logger.info("Waiting for OpenDataLoader hybrid service to be ready (30s) ...")
+        time.sleep(30)
+        Logger.info("Container is ready.")
 
     def _process_elements(
         self,
@@ -252,7 +327,7 @@ class OpenDataLoaderParser:
             file_path=file_path,
             content=load_base64_image(dst_path),
             extra_description="",
-            content_url=dst_path,
+            content_url=os.path.abspath(dst_path),  # 始终用绝对路径，供 steps 计算相对路径
         )
 
     def _render_image_from_pdf(

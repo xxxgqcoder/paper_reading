@@ -160,8 +160,8 @@ class ProcessParams(BaseModel):
         description="挂载到容器 /data 的宿主机目录绝对路径（需与 docker run -v 一致）",
     )
     odl_hybrid_mode: str = Field(
-        default="auto",
-        description="Hybrid 模式：auto（自动分流，默认）或 full（全页 AI，最高精度但内存占用大）",
+        default="full",
+        description="Hybrid 模式：full（全页 AI，最高精度）或 auto（自动分流，内存占用小）",
     )
 
     # prompt 模板
