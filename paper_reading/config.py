@@ -178,9 +178,9 @@ class ProcessParams(BaseModel):
     def resolve_defaults_and_paths(self) -> 'ProcessParams':
         # 从环境变量回退读取 LLM 连接信息
         if not self.llm_endpoint:
-            self.llm_endpoint = os.environ.get("LLM_ENDPOINT", "")
+            self.llm_endpoint = os.environ.get("PR_LLM_ENDPOINT", "")
         if not self.llm_api_key:
-            self.llm_api_key = os.environ.get("LLM_API_KEY", "")
+            self.llm_api_key = os.environ.get("PR_LLM_API_KEY", "")
             
         # 路径展开
         if self.asset_save_dir:

@@ -191,13 +191,13 @@ def main() -> None:
     )
     parser.add_argument(
         "--llm_endpoint",
-        default=os.environ.get("LLM_ENDPOINT", ""),
-        help="LLM API endpoint (default: env LLM_ENDPOINT)",
+        default=os.environ.get("PR_LLM_ENDPOINT", ""),
+        help="LLM API endpoint (default: env PR_LLM_ENDPOINT)",
     )
     parser.add_argument(
         "--llm_api_key",
-        default=os.environ.get("LLM_API_KEY", ""),
-        help="LLM API key (default: env LLM_API_KEY)",
+        default=os.environ.get("PR_LLM_API_KEY", ""),
+        help="LLM API key (default: env PR_LLM_API_KEY)",
     )
     parser.add_argument(
         "--odl_container_name",

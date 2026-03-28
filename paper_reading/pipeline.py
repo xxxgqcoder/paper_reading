@@ -38,7 +38,7 @@ async def process(params: ProcessParams) -> ProcessResult:
     if not params.llm_endpoint:
         raise ValueError(
             "ProcessParams.llm_endpoint is empty. "
-            "Please set it via CLI --llm_endpoint or env var LLM_ENDPOINT."
+            "Please set it via CLI --llm_endpoint or env var PR_LLM_ENDPOINT."
         )
 
     chat_model = params.chat_model_name

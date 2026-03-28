@@ -5,7 +5,7 @@
 ## 功能特性
 
 - **PDF 解析**：OpenDataLoader (基于 Docker) 解析版面，支持 Hybrid 混合解析模式（full/auto），提取高质量文本、图像与表格。
-- **LLM 集成**：支持 Ollama（无需 API Key）或通过环境变量 `LLM_API_KEY` 使用 OpenAI 兼容接口。
+- **LLM 集成**：支持 Ollama（无需 API Key）或通过环境变量 `PR_LLM_API_KEY` 使用 OpenAI 兼容接口。
 - **可配置**：模型、路径、解析模式、生成参数等全部通过 CLI 参数或环境变量配置。
 - **缓存**：中间结果缓存，同一文件再次处理更快。
 - **步骤可选**：可只跑 `original`、`summary`、`translate` 或其组合。
@@ -32,15 +32,15 @@ LLM 连接信息通过**环境变量**配置（不再写入 `config.yaml`）：
 
 ```sh
 # 必须设置 — LLM API 地址
-export LLM_ENDPOINT="http://127.0.0.1:11434"        # Ollama 本地
-# export LLM_ENDPOINT="https://api.openai.com/v1"   # OpenAI 兼容
+export PR_LLM_ENDPOINT="http://127.0.0.1:11434"        # Ollama 本地
+# export PR_LLM_ENDPOINT="https://api.openai.com/v1"   # OpenAI 兼容
 
 # 可选 — API Key（留空则使用 Ollama 原生协议）
-export LLM_API_KEY="sk-xxx"
+export PR_LLM_API_KEY="sk-xxx"
 ```
 
-- **Ollama**：本地启动 Ollama，设置 `LLM_ENDPOINT`，无需设置 `LLM_API_KEY`。
-- **OpenAI 兼容**：设置 `LLM_ENDPOINT` 与 `LLM_API_KEY` 环境变量。
+- **Ollama**：本地启动 Ollama，设置 `PR_LLM_ENDPOINT`，无需设置 `PR_LLM_API_KEY`。
+- **OpenAI 兼容**：设置 `PR_LLM_ENDPOINT` 与 `PR_LLM_API_KEY` 环境变量。
 
 ### 3. OpenDataLoader 解析环境
 
@@ -119,8 +119,8 @@ uv run python -m paper_reading.cli \
 | `--steps` | 否 | 逗号分隔的步骤：`summary`、`translate`、`original` |
 | `--chat_model_name` | 否 | 文本模型名称，默认 `llama3` |
 | `--vision_model_name` | 否 | 视觉模型名称，默认 `llama3` |
-| `--llm_endpoint` | 否 | LLM API 地址（默认读取 env `LLM_ENDPOINT`） |
-| `--llm_api_key` | 否 | API Key（默认读取 env `LLM_API_KEY`） |
+| `--llm_endpoint` | 否 | LLM API 地址（默认读取 env `PR_LLM_ENDPOINT`） |
+| `--llm_api_key` | 否 | API Key（默认读取 env `PR_LLM_API_KEY`） |
 | `--temperature` | 否 | 生成温度 |
 | `--top_p` | 否 | top-p 采样 |
 | `--num_ctx` | 否 | 模型上下文长度 |
@@ -140,8 +140,8 @@ uv run python -m paper_reading.cli \
 通过环境变量或 CLI 参数配置（见 [快速开始 / 配置 LLM](#2-配置-llm)）：
 
 ```sh
-export LLM_ENDPOINT="http://127.0.0.1:11434"
-export LLM_API_KEY=""   # 留空用 Ollama
+export PR_LLM_ENDPOINT="http://127.0.0.1:11434"
+export PR_LLM_API_KEY=""   # 留空用 Ollama
 ```
 
 或通过 CLI：`--llm_endpoint http://127.0.0.1:11434 --llm_api_key sk-xxx`

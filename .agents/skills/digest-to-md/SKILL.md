@@ -44,8 +44,8 @@ docker run -d --name opendataloader-api-server \
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `LLM_ENDPOINT` | 是 | LLM API 地址（如 `http://127.0.0.1:11434` 或 `https://openrouter.ai/api/v1`） |
-| `LLM_API_KEY` | 否 | API Key，留空则使用 Ollama 原生协议 |
+| `PR_LLM_ENDPOINT` | 是 | LLM API 地址（如 `http://127.0.0.1:11434` 或 `https://openrouter.ai/api/v1`） |
+| `PR_LLM_API_KEY` | 否 | API Key，留空则使用 Ollama 原生协议 |
 
 ## 输入参数
 
@@ -61,8 +61,8 @@ docker run -d --name opendataloader-api-server \
 | `steps` | `list[str]` | 否 | `["summary", "translate", "original"]` | 执行的步骤列表 |
 | `src_lang` | `str` | 否 | `"en"` | 源语言代码 |
 | `target_lang` | `str` | 否 | `"zh"` | 目标语言代码 |
-| `llm_endpoint` | `str` | 否 | env `LLM_ENDPOINT` | LLM API 地址 |
-| `llm_api_key` | `str` | 否 | env `LLM_API_KEY` | API Key |
+| `llm_endpoint` | `str` | 否 | env `PR_LLM_ENDPOINT` | LLM API 地址 |
+| `llm_api_key` | `str` | 否 | env `PR_LLM_API_KEY` | API Key |
 | `chat_model_name` | `str` | 否 | `"llama3"` | 文本模型名称 |
 | `vision_model_name` | `str` | 否 | `"llama3"` | 视觉模型名称 |
 | `gen_conf` | `dict` | 否 | `{temperature: 0.7, top_p: 0.3, ...}` | 生成参数 |
