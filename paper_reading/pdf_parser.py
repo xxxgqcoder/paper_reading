@@ -1,177 +1,52 @@
-import copy
 import json
 import os
-import shutil
-import tempfile
+import subprocess
+import time
 import uuid
+from pathlib import Path
 from typing import Any
+
+import fitz  # pymupdf
 
 from .config import Content, ContentType
 from .log import Logger
-from .utils import cache_it, hash64, load_base64_image, safe_encode, safe_strip, time_it
+from .utils import cache_it, hash64, load_base64_image, safe_encode, time_it
 
-# ---------------------------------------------------------------------------
-# MinerU model management
-
-
-def _find_mineru_model_dir() -> str | None:
-    """Scan HuggingFace cache for an existing MinerU PDF-Extract-Kit snapshot."""
-    try:
-        from huggingface_hub import scan_cache_dir
-
-        cache_info = scan_cache_dir()
-        for repo in cache_info.repos:
-            if "PDF-Extract-Kit" in repo.repo_id:
-                for revision in sorted(
-                    repo.revisions, key=lambda r: r.last_modified, reverse=True
-                ):
-                    return str(revision.snapshot_path)
-    except Exception as e:
-        Logger.warning(f"Failed to scan HuggingFace cache: {e}")
-    return None
+# 图片 bbox 包含判断的容差（PDF 坐标单位）
+_BBOX_TOLERANCE = 5.0
 
 
-def _download_mineru_models() -> str:
-    """Download all MinerU model weights. Returns the local snapshot directory."""
-    from mineru.utils.enum_class import ModelPath
+def _bbox_contains(outer: list[float], inner: list[float], tolerance: float = _BBOX_TOLERANCE) -> bool:  # noqa: E501
+    """判断 inner bbox 是否被 outer bbox 包含（含容差）。
 
-    model_source = os.getenv("MINERU_MODEL_SOURCE", "huggingface")
-    Logger.info(f"Downloading MinerU models from source: {model_source}")
-
-    repo_mapping = {
-        "huggingface": ModelPath.pipeline_root_hf,
-        "modelscope": ModelPath.pipeline_root_modelscope,
-    }
-    repo_id = repo_mapping.get(model_source)
-    if repo_id is None:
-        raise ValueError(
-            f"Unknown model source: {model_source},"
-            " expected 'huggingface' or 'modelscope'"
-        )
-
-    if model_source == "huggingface":
-        from huggingface_hub import snapshot_download
-    else:
-        from modelscope import snapshot_download  # type: ignore[no-redef]
-
-    model_paths = [
-        ModelPath.doclayout_yolo,
-        ModelPath.yolo_v8_mfd,
-        ModelPath.unimernet_small,
-        ModelPath.pytorch_paddle,
-        ModelPath.layout_reader,
-        ModelPath.slanet_plus,
-        ModelPath.unet_structure,
-        ModelPath.paddle_table_cls,
-        ModelPath.paddle_orientation_classification,
-    ]
-    downloaded_dir = ""
-    for model_path in model_paths:
-        relative_path = model_path.strip("/")
-        Logger.info(f"Downloading model component: {relative_path}")
-        downloaded_dir = snapshot_download(
-            repo_id,
-            allow_patterns=[relative_path, relative_path + "/*"],
-        )
-
-    Logger.info(f"All models downloaded to: {downloaded_dir}")
-    return downloaded_dir
-
-
-def ensure_mineru_model() -> str:
+    bbox 格式：[x0, y0, x1, y1]，PDF 坐标系（y 轴向上）。
     """
-    Ensure MinerU model weights are available locally.
-    Downloads them automatically if not found.
-
-    Override with environment variable MINERU_MODEL_DIR to skip auto-detection.
-    """
-    env_model_dir = os.environ.get("MINERU_MODEL_DIR")
-    if env_model_dir:
-        expanded = os.path.abspath(os.path.expanduser(env_model_dir))
-        if os.path.isdir(expanded):
-            Logger.info(f"Using model dir from MINERU_MODEL_DIR: {expanded}")
-            return expanded
-        Logger.warning(
-            f"MINERU_MODEL_DIR={env_model_dir} does not exist,"
-            " falling back to auto-detection"
-        )
-
-    model_dir = _find_mineru_model_dir()
-    if model_dir:
-        Logger.info(f"Found existing MinerU model: {model_dir}")
-        return model_dir
-
-    Logger.info(
-        "MinerU models not found locally."
-        " Downloading (one-time operation, may take a while)..."
+    return (
+        inner[0] >= outer[0] - tolerance
+        and inner[1] >= outer[1] - tolerance
+        and inner[2] <= outer[2] + tolerance
+        and inner[3] <= outer[3] + tolerance
     )
-    return _download_mineru_models()
 
 
-_MINERU_CONFIG_TEMPLATE: dict[str, Any] = {
-    "bucket_info": {
-        "bucket-name-1": ["ak", "sk", "endpoint"],
-        "bucket-name-2": ["ak", "sk", "endpoint"],
-    },
-    "latex-delimiter-config": {
-        "display": {"left": "$$", "right": "$$"},
-        "inline": {"left": "$", "right": "$"},
-    },
-    "llm-aided-config": {
-        "title_aided": {
-            "api_key": "",
-            "base_url": "",
-            "model": "",
-            "enable": False,
-        }
-    },
-    "mineru_model_source": "local",
-}
+class OpenDataLoaderParser:
+    """PDF 解析器，通过 Docker 容器运行 OpenDataLoader。
 
-
-def prepare_mineru_runtime_config(model_dir: str) -> str:
-    """
-    Build MinerU runtime config from built-in template, fill in model directory
-    and self-reference path, then write to a temp file.
-
-    Returns the path to the generated runtime config file.
-    """
-    conf = copy.deepcopy(_MINERU_CONFIG_TEMPLATE)
-
-    runtime_config_path = os.path.join(
-        tempfile.gettempdir(), "mineru_runtime_config.json"
-    )
-    conf["models-dir"] = {"pipeline": model_dir}
-    conf["mineru_tools_conf_json"] = runtime_config_path
-
-    with open(runtime_config_path, "w", encoding="utf-8") as f:
-        json.dump(conf, f, ensure_ascii=False, indent=4)
-
-    Logger.info(f"Runtime MinerU config written to: {runtime_config_path}")
-    return runtime_config_path
-
-
-# ---------------------------------------------------------------------------
-# PDF parser
-
-
-class PDFParser:
-    """
-    PDF parser implementation, backed by `MinerU <https://github.com/opendatalab/MinerU>`_.
+    宿主机无需安装 Java，通过 docker exec 在容器内执行解析，
+    输出文件通过挂载目录映射回宿主机。
     """
 
-    def __init__(self, runtime_config_path: str):
-        super().__init__()
+    def __init__(
+        self,
+        container_name: str = "opendataloader-api-server",
+        volume_host_dir: str = "",
+        hybrid_mode: str = "auto",
+    ):
+        self.container_name = container_name
+        self.volume_host_dir = volume_host_dir
+        self.hybrid_mode = hybrid_mode
 
-        with open(runtime_config_path) as f:
-            conf = json.load(f)
-
-        Logger.info(f"Parser config: {json.dumps(conf, indent=4)}")
-
-        os.environ["MINERU_TOOLS_CONFIG_JSON"] = runtime_config_path
-        os.environ["MINERU_MODEL_SOURCE"] = conf.get("mineru_model_source", "local")
-
-    def key_generator(self, file_path, **kwargs) -> str:
+    def key_generator(self, file_path: str, **kwargs) -> str:
         file_bytes = b""
         try:
             with open(file_path, "rb") as f:
@@ -179,247 +54,378 @@ class PDFParser:
         except Exception as e:
             Logger.error(f"Read file exception: {e}")
             return uuid.uuid4().hex
-
-        return "parser::file_content_hash::" + hash64(file_bytes)
+        return "odl_parser::file_content_hash::" + hash64(file_bytes)
 
     @time_it("pdf parser")
     @cache_it(key_generator=key_generator)
     def parse(self, file_path: str, asset_save_dir: str = "") -> list[Content]:
+        """解析 PDF 文件，返回 Content 列表。
+
+        通过 docker exec 在容器内调用 opendataloader-pdf CLI，
+        读取 JSON 输出文件并转换为 Content 列表。
+        图片以 UUID 命名保存至 asset_save_dir，content_url 存储绝对路径。
+        """
         if asset_save_dir:
             os.makedirs(asset_save_dir, exist_ok=True)
-        self.file_path = file_path
 
-        temp_dir = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
-        temp_asset_dir = temp_dir.name
-        Logger.info(f"temp asset directory: {temp_asset_dir}")
+        pdf_filename = os.path.basename(file_path)
+        pdf_stem = Path(file_path).stem
 
-        contents = self.parse_pdf_content(
-            file_path=file_path,
-            temp_asset_dir=temp_asset_dir,
-            asset_save_dir=asset_save_dir,
+        # 如果 file_path 不在 volume_host_dir 下，或者 ODL 挂载路径不匹配，
+        # 则将文件拷贝到 volume_host_dir 下以便容器访问。
+        file_path_abs = os.path.abspath(file_path)
+        volume_host_dir_abs = os.path.abspath(self.volume_host_dir)
+        
+        target_pdf_path = os.path.join(volume_host_dir_abs, pdf_filename)
+        if not file_path_abs.startswith(volume_host_dir_abs):
+            Logger.warning(f"File {file_path_abs} is outside of volume_host_dir {volume_host_dir_abs}. Copying to it...")
+            import shutil
+            shutil.copy2(file_path_abs, target_pdf_path)
+        elif not os.path.exists(target_pdf_path):
+             # 即使在目录下，如果文件名不一致（软链接等情况），也确保目标路径存在
+             import shutil
+             shutil.copy2(file_path_abs, target_pdf_path)
+
+        self._ensure_container_running()
+
+        Logger.info(f"Parsing PDF via OpenDataLoader container: {self.container_name}")
+        result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                self.container_name,
+                "opendataloader-pdf",
+                f"/data/{pdf_filename}",
+                "--output-dir",
+                "/data/output",
+                "--format",
+                "json",
+                "--hybrid",
+                "docling-fast",
+                "--hybrid-mode",
+                self.hybrid_mode,
+                "--hybrid-url",
+                "http://localhost:5002",
+            ],
+            capture_output=True,
+            text=True,
         )
-        Logger.info(f"Original content block num: {len(contents)}")
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"OpenDataLoader extraction failed"
+                f" (exit {result.returncode}): {result.stderr}"
+            )
+        Logger.info(f"OpenDataLoader stdout: {result.stdout[:300]}")
 
-        temp_dir.cleanup()
+        json_host_path = os.path.join(
+            self.volume_host_dir, "output", f"{pdf_stem}.json"
+        )
+        Logger.info(f"Reading JSON result from: {json_host_path}")
+        with open(json_host_path, encoding="utf-8") as f:
+            doc = json.load(f)
+
+        elements: list[dict[str, Any]] = doc.get("kids", [])
+        output_dir = os.path.join(self.volume_host_dir, "output")
+
+        contents = self._process_elements(
+            elements=elements,
+            output_dir=output_dir,
+            asset_save_dir=asset_save_dir,
+            file_path=file_path,
+        )
+        self._stop_container()
         return contents
 
-    def parse_pdf_content(
-        self, file_path: str, temp_asset_dir: str, asset_save_dir: str
-    ) -> list[Content]:
-        from pathlib import Path
-
-        from mineru.backend.pipeline.model_json_to_middle_json import (
-            result_to_middle_json as pipeline_result_to_middle_json,
+    def _stop_container(self) -> None:
+        """解析完成后停止并删除 Docker 容器，释放资源。"""
+        Logger.info(f"Removing container '{self.container_name}' after parsing ...")
+        subprocess.run(
+            ["docker", "rm", "-f", self.container_name],
+            capture_output=True,
+            text=True,
         )
-        from mineru.backend.pipeline.pipeline_analyze import (
-            doc_analyze as pipeline_doc_analyze,
+        Logger.info(f"Container '{self.container_name}' removed.")
+
+    def _ensure_container_running(self) -> None:
+        """确保 OpenDataLoader Docker 容器正在运行。
+
+        若 Docker 镜像不存在，则从包内 Dockerfile 本地构建；
+        若容器未运行，则删除已停止的同名容器并重新启动；
+        最后等待混合服务就绪。
+        """
+        # 检查容器是否正在运行
+        inspect = subprocess.run(
+            ["docker", "inspect", "--format", "{{.State.Running}}", self.container_name],
+            capture_output=True,
+            text=True,
         )
-        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import (
-            union_make as pipeline_union_make,
+        if inspect.returncode == 0 and inspect.stdout.strip() == "true":
+            return  # 容器已在运行
+
+        image_name = self.container_name  # 镜像名与容器名保持一致
+
+        # 检查 Docker 镜像是否存在
+        img_check = subprocess.run(
+            ["docker", "images", "-q", image_name],
+            capture_output=True,
+            text=True,
         )
-        from mineru.cli.common import (
-            convert_pdf_bytes_to_bytes_by_pypdfium2,
-            prepare_env,
-            read_fn,
-        )
-        from mineru.data.data_reader_writer import FileBasedDataWriter
-        from mineru.utils.draw_bbox import draw_layout_bbox, draw_span_bbox
-        from mineru.utils.enum_class import MakeMode
-
-        try:
-            shutil.rmtree(temp_asset_dir)
-        except Exception as e:
-            Logger.error(f"Remove temp asset dir exception: {e}")
-            pass
-        os.makedirs(temp_asset_dir, exist_ok=True)
-
-        lang = "ch"
-        start_page_id = 0
-        end_page_id = None
-        parse_method = "auto"
-
-        file_name = str(Path(file_path).stem)
-        pdf_bytes = read_fn(file_path)
-
-        new_pdf_bytes = convert_pdf_bytes_to_bytes_by_pypdfium2(
-            pdf_bytes, start_page_id, end_page_id
-        )
-
-        infer_results, all_image_lists, all_pdf_docs, lang_list, ocr_enabled_list = (
-            pipeline_doc_analyze(
-                [new_pdf_bytes],
-                [lang],
-                parse_method=parse_method,
-                formula_enable=True,
-                table_enable=True,
+        if not img_check.stdout.strip():
+            # 镜像不存在，从随 skill 一起分发的 Dockerfile 本地构建
+            dockerfile_dir = os.path.dirname(os.path.abspath(__file__))
+            Logger.info(
+                f"Docker image '{image_name}' not found. "
+                f"Building from {dockerfile_dir}/Dockerfile ..."
             )
+            build = subprocess.run(
+                ["docker", "build", "-t", image_name, dockerfile_dir],
+            )
+            if build.returncode != 0:
+                raise RuntimeError(
+                    f"Docker build failed (exit {build.returncode}). "
+                    "Check that Docker is running and you have internet access."
+                )
+            Logger.info(f"Docker image '{image_name}' built successfully.")
+
+        # 删除已停止的同名容器（若有），避免名称冲突
+        subprocess.run(
+            ["docker", "rm", "-f", self.container_name],
+            capture_output=True,
+            text=True,
         )
 
-        model_list = infer_results[0]
-        model_json = copy.deepcopy(model_list)
-        local_image_dir, local_md_dir = prepare_env(
-            temp_asset_dir, file_name, parse_method
+        # 启动容器，将 volume_host_dir 挂载至 /data
+        Logger.info(f"Starting container '{self.container_name}' ...")
+        run = subprocess.run(
+            [
+                "docker", "run", "-d",
+                "--name", self.container_name,
+                "-v", f"{self.volume_host_dir}:/data",
+                "-p", "5002:5002",
+                image_name,
+            ],
+            capture_output=True,
+            text=True,
         )
-        image_writer, md_writer = (
-            FileBasedDataWriter(local_image_dir),
-            FileBasedDataWriter(local_md_dir),
-        )
+        if run.returncode != 0:
+            raise RuntimeError(
+                f"Failed to start container '{self.container_name}' "
+                f"(exit {run.returncode}): {run.stderr}"
+            )
 
-        middle_json = pipeline_result_to_middle_json(
-            model_list,
-            all_image_lists[0],
-            all_pdf_docs[0],
-            image_writer,
-            lang_list[0],
-            ocr_enabled_list[0],
-            True,
-        )
+        # 等待 hybrid API 服务就绪（服务启动需要一定时间）
+        Logger.info("Waiting for OpenDataLoader hybrid service to be ready (30s) ...")
+        time.sleep(30)
+        Logger.info("Container is ready.")
 
-        pdf_info = middle_json["pdf_info"]
+    def _process_elements(
+        self,
+        elements: list[dict[str, Any]],
+        output_dir: str,
+        asset_save_dir: str,
+        file_path: str,
+    ) -> list[Content]:
+        """将 OpenDataLoader JSON 元素列表转换为 Content 列表。
 
-        draw_layout_bbox(
-            pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_layout.pdf"
-        )
-        draw_span_bbox(pdf_info, new_pdf_bytes, local_md_dir, f"{file_name}_span.pdf")
-        md_writer.write(f"{file_name}_origin.pdf", new_pdf_bytes)
+        - 使用 bbox 包含判断跳过图片内部的 OCR 文字
+        - 图片以 UUID 命名复制至 asset_save_dir
+        - content_url 保存绝对路径
+        """
+        # 第一遍：收集每页所有图片的 bbox，用于后续过滤图片内文字
+        image_bboxes_by_page: dict[int, list[list[float]]] = {}
+        for elem in elements:
+            if elem.get("type") == "image":
+                page = elem.get("page number", 0)
+                bbox = elem.get("bounding box")
+                if bbox:
+                    image_bboxes_by_page.setdefault(page, []).append(bbox)
 
-        image_dir = str(os.path.basename(local_image_dir))
-        md_content_str: list[str] = pipeline_union_make(
-            pdf_info, MakeMode.MM_MD, image_dir
-        )  # type: ignore
-        md_writer.write_string(f"{file_name}.md", str(md_content_str))
+        contents: list[Content] = []
+        for elem in elements:
+            elem_type = elem.get("type", "")
+            page = elem.get("page number", 0)
+            bbox = elem.get("bounding box")
 
-        image_dir = str(os.path.basename(local_image_dir))
-        content_list: list[dict[str, Any]] = pipeline_union_make(
-            pdf_info, MakeMode.CONTENT_LIST, image_dir
-        )  # type: ignore
-        md_writer.write_string(
-            f"{file_name}_content_list.json",
-            json.dumps(content_list, ensure_ascii=False, indent=4),
-        )
+            if elem_type == "image":
+                source = elem.get("source", "")
+                if not source:
+                    continue
+                content = self._process_image(
+                    source=source,
+                    output_dir=output_dir,
+                    asset_save_dir=asset_save_dir,
+                    file_path=file_path,
+                    page_number=page,
+                    bbox=bbox,
+                )
+                if content:
+                    contents.append(content)
 
-        md_writer.write_string(
-            f"{file_name}_middle.json",
-            json.dumps(middle_json, ensure_ascii=False, indent=4),
-        )
+            elif elem_type in ("paragraph", "heading", "formula", "list"):
+                # 跳过位于图片 bbox 内的文字（过滤图片中的 OCR 文字）
+                if bbox and page in image_bboxes_by_page and any(
+                    _bbox_contains(img_bbox, bbox)
+                    for img_bbox in image_bboxes_by_page[page]
+                ):
+                    Logger.info(
+                        f"Skipping in-image text on page {page}:"
+                        f" {elem.get('content', '')[:60]!r}"
+                    )
+                    continue
 
-        md_writer.write_string(
-            f"{file_name}_model.json",
-            json.dumps(model_json, ensure_ascii=False, indent=4),
-        )
+                if elem_type == "list":
+                    text = self._list_to_text(elem)
+                else:
+                    text = elem.get("content", "").strip()
+                    if elem_type == "heading":
+                        level = max(1, int(elem.get("heading level", 2)))
+                        text = "#" * level + " " + text
 
-        def _save_image(src_path: str, dst_dir: str) -> None:
-            dst_path = os.path.join(dst_dir, os.path.basename(src_path))
-            shutil.copyfile(src_path, dst_path)
-
-        def _is_valid_content(content: dict[str, Any]) -> bool:
-            if "type" not in content:
-                return False
-            if content["type"] in ["text", "equation"]:
-                return "text" in content
-            if content["type"] == "image":
-                return "img_path" in content and len(content["img_path"]) > 0
-            if content["type"] == "table":
-                return "table_body" in content
-            return True
-
-        def _format_caption(caption: Any) -> str:
-            if isinstance(caption, list):
-                ret = "\n".join([str(e) for e in caption])
-                return ret
-            return str(caption)
-
-        contents = []
-        for content in content_list:
-            if not _is_valid_content(content):
-                Logger.info(f"Invalid content: {json.dumps(content, indent=4)}")
-                continue
-
-            if content["type"] in ["text", "equation"]:
-                text = self.strip_text_content([content["text"]])
-                if content.get("text_level", 0) == 1:
-                    text = "# " + text
+                if not text:
+                    continue
                 contents.append(
                     Content(
                         content_type=ContentType.TEXT,
-                        file_path=self.file_path,
+                        file_path=file_path,
                         content=safe_encode(text),
                         extra_description="",
                         content_url="",
                     )
                 )
 
-            elif content["type"] in ["image"]:
-                texts = [
-                    _format_caption(content.get("img_caption", "")),
-                    _format_caption(content.get("img_footnote", "")),
-                ]
-                extra_description = self.strip_text_content(texts)
-                if len(extra_description) == 0:
-                    extra_description = ""
-
-                abs_img_path = os.path.join(
-                    temp_asset_dir,
-                    str(Path(self.file_path).stem),
-                    "auto",
-                    content["img_path"],
-                )
-                _save_image(abs_img_path, asset_save_dir)
-
-                contents.append(
-                    Content(
-                        content_type=ContentType.IMAGE,
-                        file_path=self.file_path,
-                        content=load_base64_image(abs_img_path),
-                        extra_description=safe_encode(extra_description),
-                        content_url=os.path.join(
-                            asset_save_dir, os.path.basename(abs_img_path)
-                        ),
-                    )
-                )
-
-            elif content["type"] in ["table"]:
-                texts = [
-                    _format_caption(content.get("table_caption", "")),
-                    _format_caption(content.get("table_footnote", "")),
-                ]
-                extra_description = self.strip_text_content(texts)
-                if len(extra_description) == 0:
-                    extra_description = ""
-
-                abs_img_path = os.path.join(
-                    temp_asset_dir,
-                    str(Path(self.file_path).stem),
-                    "auto",
-                    content["img_path"],
-                )
-                if content["img_path"]:
-                    _save_image(abs_img_path, asset_save_dir)
-
-                contents.append(
-                    Content(
-                        content_type=ContentType.TABLE,
-                        file_path=self.file_path,
-                        content=load_base64_image(abs_img_path),
-                        extra_description=extra_description,
-                        content_url=os.path.join(
-                            asset_save_dir, os.path.basename(abs_img_path)
+            elif elem_type == "table":
+                table_md = self._table_to_markdown(elem)
+                if table_md:
+                    contents.append(
+                        Content(
+                            content_type=ContentType.TABLE,
+                            file_path=file_path,
+                            content=safe_encode(table_md),
+                            extra_description="",
+                            content_url="",
                         )
-                        if content["img_path"]
-                        else "",
                     )
-                )
-            else:
-                pass
 
         return contents
 
-    def strip_text_content(self, texts: list[str]) -> str:
-        content = ""
-        for text in texts:
-            striped = safe_strip(text)
-            if len(striped) == 0 or striped == "[]":
-                continue
-            content += striped
-            content += "\n\n"
-        return content.strip()
+    def _process_image(
+        self,
+        source: str,
+        output_dir: str,
+        asset_save_dir: str,
+        file_path: str,
+        page_number: int = 0,
+        bbox: list[float] | None = None,
+    ) -> Content | None:
+        """处理图片元素：优先用 pymupdf 从原始 PDF 高 DPI 光栅化对应区域，
+        若失败则回退至直接复制 OpenDataLoader 提取的图片。"""
+        src_path = os.path.join(output_dir, source)
+        if not os.path.isfile(src_path):
+            Logger.warning(f"Image file not found: {src_path}")
+            return None
+
+        # 尝试用 pymupdf 以高 DPI 光栅化 PDF 中的图片区域
+        img_bytes: bytes | None = None
+        if bbox and page_number > 0:
+            img_bytes = self._render_image_from_pdf(
+                pdf_path=file_path,
+                page_number=page_number,
+                bbox=bbox,
+                dpi=300,
+            )
+
+        if img_bytes is None:
+            # 回退：直接读取 OpenDataLoader 提取的图片
+            with open(src_path, "rb") as _f:
+                img_bytes = _f.read()
+            ext = Path(source).suffix
+        else:
+            ext = ".png"
+
+        # 基于图片内容生成确定性文件名，相同内容始终得到相同文件名
+        content_hash = hash64(img_bytes)
+        new_name = content_hash + ext
+        dst_path = os.path.join(asset_save_dir, new_name)
+        with open(dst_path, "wb") as _f:
+            _f.write(img_bytes)
+        Logger.info(f"Saved image with content-hash name: {dst_path}")
+
+        return Content(
+            content_type=ContentType.IMAGE,
+            file_path=file_path,
+            content=load_base64_image(dst_path),
+            extra_description="",
+            content_url=os.path.abspath(dst_path),  # 始终用绝对路径，供 steps 计算相对路径
+        )
+
+    def _render_image_from_pdf(
+        self,
+        pdf_path: str,
+        page_number: int,
+        bbox: list[float],
+        dpi: int = 300,
+    ) -> bytes | None:
+        """使用 pymupdf 从原始 PDF 按 bbox 裁剪并高 DPI 光栅化，返回 PNG bytes。
+
+        OpenDataLoader bbox 格式：[x0, y0, x1, y1]，PDF 标准坐标（原点左下，y 向上）。
+        fitz 使用屏幕坐标（原点左上，y 向下），需要做 y 轴翻转：
+          fitz_y = page_height - pdf_y
+        """
+        try:
+            doc = fitz.open(pdf_path)
+            # OpenDataLoader 页码从 1 开始
+            page = doc[page_number - 1]
+            page_height = page.rect.height
+
+            # 将 PDF 标准坐标转换为 fitz 屏幕坐标
+            x0, y0_pdf, x1, y1_pdf = bbox
+            fitz_y0 = page_height - y1_pdf  # PDF y1（上边）→ fitz 顶部
+            fitz_y1 = page_height - y0_pdf  # PDF y0（下边）→ fitz 底部
+
+            clip = fitz.Rect(x0, fitz_y0, x1, fitz_y1)
+            mat = fitz.Matrix(dpi / 72, dpi / 72)
+            pix = page.get_pixmap(matrix=mat, clip=clip)
+            png_bytes: bytes = pix.tobytes("png")
+            doc.close()
+            Logger.info(
+                f"Rendered page {page_number} bbox {bbox} at {dpi} DPI:"
+                f" {pix.width}x{pix.height}"
+            )
+            return png_bytes
+        except Exception as e:
+            Logger.warning(f"Failed to render image from PDF: {e}")
+            return None
+
+    def _list_to_text(self, list_elem: dict[str, Any]) -> str:
+        """将 list 元素转换为 Markdown 列表文本。"""
+        items = list_elem.get("list items", [])
+        lines = []
+        for item in items:
+            text = item.get("content", "").strip()
+            if text:
+                lines.append(f"- {text}")
+        return "\n".join(lines)
+
+    def _table_to_markdown(self, table_elem: dict[str, Any]) -> str:
+        """将 table 元素转换为 Markdown 表格文本。"""
+        rows = table_elem.get("rows", [])
+        if not rows:
+            return ""
+
+        md_rows = []
+        for row in rows:
+            cells = row.get("cells", [])
+            cell_texts = []
+            for cell in cells:
+                kids = cell.get("kids", [])
+                text = " ".join(k.get("content", "") for k in kids if k.get("content"))
+                cell_texts.append(text.replace("|", "\\|"))
+            md_rows.append("| " + " | ".join(cell_texts) + " |")
+
+        if not md_rows:
+            return ""
+
+        # 在标题行后插入分隔行
+        num_cols = len(rows[0].get("cells", []))
+        separator = "| " + " | ".join(["---"] * num_cols) + " |"
+        return "\n".join([md_rows[0], separator] + md_rows[1:])

@@ -13,7 +13,6 @@ from .utils import (
     estimate_token_num,
     is_empty,
     line_breaker,
-    relative_md_image_path,
     time_it,
 )
 
@@ -51,12 +50,13 @@ async def save_parsed_content(ctx: StepContext) -> None:
             lines += content.content + line_breaker
         elif content.content_type in [ContentType.IMAGE, ContentType.TABLE]:
             if content.content_url:
-                img_name = os.path.basename(content.content_url)
-                md_img_path = relative_md_image_path(
-                    sys_image_folder=os.path.dirname(content.content_url),
-                    img_name=img_name,
-                )
-                lines += md_img_path + line_breaker
+                # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示
+                md_dir = os.path.dirname(os.path.abspath(ctx.md_writer.name))
+                rel_url = os.path.relpath(content.content_url, md_dir)
+                lines += f"![image]({rel_url})" + line_breaker + line_breaker
+            elif content.content_type == ContentType.TABLE and content.content:
+                # Markdown 格式的表格
+                lines += content.content + line_breaker
 
             lines += f"{line_breaker}{content.extra_description}{line_breaker}"
         ctx.md_writer.write(lines)
@@ -123,8 +123,10 @@ async def translate_content(ctx: StepContext) -> None:
         if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
             img_path = None
             if content_list[i].content_url:
-                img_name = os.path.basename(content_list[i].content_url)
-                img_path = relative_md_image_path(ctx.asset_save_dir, img_name)
+                # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示
+                md_dir = os.path.dirname(os.path.abspath(ctx.md_writer.name))
+                rel_url = os.path.relpath(content_list[i].content_url, md_dir)
+                img_path = f"![image]({rel_url})"
             groups.append(("media", [i], img_path))
             i += 1
             continue
@@ -151,7 +153,13 @@ async def translate_content(ctx: StepContext) -> None:
                 f"Translating content {idx}, type: {content_list[idx].content_type}"
             )
             if img_path:
-                result += img_path + line_breaker
+                result += img_path + line_breaker + line_breaker
+            elif (
+                content_list[idx].content_type == ContentType.TABLE
+                and content_list[idx].content
+            ):
+                # Markdown 格式表格直接输出，无需翻译
+                result += content_list[idx].content + line_breaker
             translated = await translate_text_content(
                 content_list[idx].extra_description, src_lang, target_lang, ctx
             )
@@ -194,7 +202,15 @@ async def summary_content(ctx: StepContext) -> None:
         if content.content_type == ContentType.TEXT:
             full_content += content.content + line_breaker
         elif content.content_type in [ContentType.IMAGE, ContentType.TABLE]:
-            full_content += content.extra_description + line_breaker
+            if (
+                content.content_type == ContentType.TABLE
+                and content.content
+                and not content.content_url
+            ):
+                # Markdown 格式表格纳入摘要上下文
+                full_content += content.content + line_breaker
+            else:
+                full_content += content.extra_description + line_breaker
         else:
             Logger.info(f"Unrecognized content: {content}")
 

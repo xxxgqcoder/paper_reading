@@ -4,15 +4,20 @@ Commands:
   process (default)   Parse PDF, optional summary/translate; output Markdown.
   extract-pages       Extract page ranges from a PDF.
   install-skills      Deploy SKILL.md to ~/.agents/skills/.
+  get-schema          Print the JSON schema for ProcessParams.
 
 Usage (process):
     paper-reading --file_path <pdf> --final_md_file_save_dir <dir>
+    paper-reading --config <config.json>
 
 Usage (extract-pages):
     paper-reading extract-pages --input_pdf <pdf> --pages 1-10 3,5-7
 
 Usage (install-skills):
     paper-reading install-skills [--uninstall]
+    
+Usage (get-schema):
+    paper-reading get-schema
 """
 
 import argparse
@@ -24,7 +29,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import ExtractPagesParams, ProcessParams, Step, _default_gen_conf
+from .config import ExtractPagesParams, ProcessParams, GenerationConfig, Step
 from .extract_pages import run_extract_pages
 from .log import Logger
 from .pipeline import process
@@ -97,26 +102,40 @@ def _install_skills(uninstall: bool = False) -> None:
 
 def main() -> None:
     valid_steps = ",".join(s.value for s in Step)
-    gen_defaults = _default_gen_conf()
+    
+    # 获取 GenerationConfig 的默认值作为 argparse 的默认值
+    default_gen_conf = GenerationConfig()
+    
     parser = argparse.ArgumentParser(
         description=(
             "PDF tool: parse/translate/summarize (default),"
             " extract pages, or install skills."
         ),
     )
+
+    # Command: process (default but explicit via subparser adds clarity)
+    # 为了保持向后兼容，如果第一个参数不是子命令，默认为 "process"
+    # 但 argparse 原生不支持这种混合模式很容易。这里我们采用显式添加 process 子命令
+    # 同时在如果不匹配任何子命令时，尝试解析为主命令参数
+    # 为简单起见，我们把 process 的参数加到主解析器上，但也添加 explicit command
+    
+    # 策略：如果不带任何子命令，会被视作 process
+    pass
+
     parser.add_argument(
-        "command",
+        "command_arg",
         nargs="?",
         default="process",
-        choices=["process", "extract-pages", "install-skills"],
+        choices=["process", "extract-pages", "install-skills", "get-schema"],
         help="process (default), extract-pages, or install-skills",
     )
 
     # --- process 参数 ---
-    parser.add_argument("--file_path", help="path to pdf file (required for process)")
+    parser.add_argument("--config", help="Path to JSON config file (process only)")
+    parser.add_argument("--file_path", help="path to pdf file")
     parser.add_argument(
         "--final_md_file_save_dir",
-        help="output directory for markdown file (required for process)",
+        help="output directory for markdown file",
     )
     parser.add_argument(
         "--steps",
@@ -140,22 +159,22 @@ def main() -> None:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=gen_defaults["temperature"],
+        default=default_gen_conf.temperature,
         help="generation temperature",
     )
     parser.add_argument(
-        "--top_p", type=float, default=gen_defaults["top_p"], help="top-p sampling"
+        "--top_p", type=float, default=default_gen_conf.top_p, help="top-p sampling"
     )
     parser.add_argument(
         "--repeat_penalty",
         type=float,
-        default=gen_defaults["repeat_penalty"],
+        default=default_gen_conf.repeat_penalty,
         help="repeat penalty",
     )
     parser.add_argument(
         "--num_ctx",
         type=int,
-        default=gen_defaults["num_ctx"],
+        default=default_gen_conf.num_ctx,
         help="model context length",
     )
     parser.add_argument(
@@ -172,13 +191,29 @@ def main() -> None:
     )
     parser.add_argument(
         "--llm_endpoint",
-        default=os.environ.get("LLM_ENDPOINT", ""),
-        help="LLM API endpoint (default: env LLM_ENDPOINT)",
+        default=os.environ.get("PR_LLM_ENDPOINT", ""),
+        help="LLM API endpoint (default: env PR_LLM_ENDPOINT)",
     )
     parser.add_argument(
         "--llm_api_key",
-        default=os.environ.get("LLM_API_KEY", ""),
-        help="LLM API key (default: env LLM_API_KEY)",
+        default=os.environ.get("PR_LLM_API_KEY", ""),
+        help="LLM API key (default: env PR_LLM_API_KEY)",
+    )
+    parser.add_argument(
+        "--odl_container_name",
+        default="opendataloader-api-server",
+        help="OpenDataLoader Docker container name (default: opendataloader-api-server)",
+    )
+    parser.add_argument(
+        "--odl_volume_host_dir",
+        default=os.environ.get("ODL_VOLUME_HOST_DIR", ""),
+        help="Host directory mounted as /data in the OpenDataLoader container (default: env ODL_VOLUME_HOST_DIR)",
+    )
+    parser.add_argument(
+        "--odl_hybrid_mode",
+        default="full",
+        choices=["auto", "full"],
+        help="OpenDataLoader hybrid mode: full (default, highest accuracy, high memory) or auto",
     )
 
     # --- extract-pages 参数 ---
@@ -199,13 +234,25 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == "install-skills":
+    # 命令分发
+    if args.command_arg == "get-schema":
+        # 输出 JSON Schema
+        print(json.dumps(ProcessParams.model_json_schema(), indent=2, ensure_ascii=False))
+        return
+
+    if args.command_arg == "install-skills":
         _install_skills(uninstall=args.uninstall)
         return
 
-    if args.command == "extract-pages":
+    if args.command_arg == "extract-pages":
         if not args.input_pdf or not args.pages:
-            parser.error("extract-pages requires --input_pdf and --pages")
+            if not args.input_pdf:
+                # 尝试使用 --file_path 作为 fallback
+                if args.file_path and args.pages:
+                    args.input_pdf = args.file_path
+                else:
+                    parser.error("extract-pages requires --input_pdf and --pages")
+        
         begin_ts = time.time()
         try:
             params = ExtractPagesParams(
@@ -232,29 +279,52 @@ def main() -> None:
         return
 
     # --- process (default) ---
-    if not args.file_path or not args.final_md_file_save_dir:
-        parser.error("process requires --file_path and --final_md_file_save_dir")
-
-    params = ProcessParams(
-        file_path=args.file_path,
-        output_dir=os.path.realpath(args.final_md_file_save_dir),
-        steps=[s.strip() for s in args.steps.split(",")],
-        src_lang=args.src_lang,
-        target_lang=args.target_lang,
-        llm_endpoint=args.llm_endpoint,
-        llm_api_key=args.llm_api_key,
-        chat_model_name=args.chat_model_name,
-        vision_model_name=args.vision_model_name,
-        gen_conf={
-            "temperature": args.temperature,
-            "top_p": args.top_p,
-            "repeat_penalty": args.repeat_penalty,
-            "num_ctx": args.num_ctx,
-        },
-        max_context_token_num=args.max_context_token_num,
-        asset_save_dir=args.asset_save_dir,
-        cache_data_dir=args.cache_data_dir,
-    )
+    # 构造 ProcessParams
+    try:
+        if args.config:
+            # 从文件加载
+            config_path = Path(args.config)
+            if not config_path.is_file():
+                parser.error(f"Config file not found: {args.config}")
+            with open(config_path, "r", encoding="utf-8") as f:
+                # 允许传入部分参数，从 CLI 补全吗？不，简单起见，config 文件优先且完备
+                # 或者，我们可以先加载 config，也就是个 dict，然后 validate
+                config_data = json.load(f)
+                params = ProcessParams.model_validate(config_data)
+        else:
+            if not args.file_path or not args.final_md_file_save_dir:
+                parser.error("process requires --file_path and --final_md_file_save_dir (or --config)")
+            
+            # 手动构造 GenerationConfig
+            gen_conf = GenerationConfig(
+                temperature=args.temperature,
+                top_p=args.top_p,
+                repeat_penalty=args.repeat_penalty,
+                num_ctx=args.num_ctx
+            )
+            
+            # 构造 ProcessParams
+            params = ProcessParams(
+                file_path=args.file_path,
+                output_dir=os.path.realpath(args.final_md_file_save_dir),
+                steps=[s.strip() for s in args.steps.split(",")],
+                src_lang=args.src_lang,
+                target_lang=args.target_lang,
+                llm_endpoint=args.llm_endpoint,
+                llm_api_key=args.llm_api_key,
+                chat_model_name=args.chat_model_name,
+                vision_model_name=args.vision_model_name,
+                gen_conf=gen_conf,
+                max_context_token_num=args.max_context_token_num,
+                asset_save_dir=args.asset_save_dir,
+                cache_data_dir=args.cache_data_dir,
+                odl_container_name=args.odl_container_name,
+                odl_volume_host_dir=args.odl_volume_host_dir,
+                odl_hybrid_mode=args.odl_hybrid_mode,
+            )
+    except Exception as e:
+        print(json.dumps({"status": "error", "error": f"Invalid configuration: {e}"}, ensure_ascii=False))
+        sys.exit(1)
 
     Logger.info(f"Processing file: {os.path.basename(params.file_path)}")
 
@@ -269,6 +339,8 @@ def main() -> None:
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
         Logger.error(f"Processing failed: {e}")
+        # import traceback
+        # traceback.print_exc()
         result = {
             "status": "error",
             "error": str(e),

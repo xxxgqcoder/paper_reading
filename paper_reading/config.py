@@ -1,8 +1,9 @@
 import os
-from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from strenum import StrEnum
 
 
@@ -55,14 +56,12 @@ DEFAULT_PROMPT_SUMMARY = (
 )
 
 
-def _default_gen_conf() -> dict:
-    """默认生成参数。"""
-    return {
-        "temperature": 0.7,
-        "top_p": 0.3,
-        "repeat_penalty": 1.1,
-        "num_ctx": 1024 * 16,
-    }
+class GenerationConfig(BaseModel):
+    """LLM 生成配置参数。"""
+    temperature: float = Field(default=0.7, description="采样温度，越高生成内容越随机")
+    top_p: float = Field(default=0.3, description="核采样阈值")
+    repeat_penalty: float = Field(default=1.1, description="重复惩罚系数")
+    num_ctx: int = Field(default=1024 * 16, description="上下文窗口大小")
 
 
 class ContentType(StrEnum):
@@ -110,60 +109,105 @@ def _expand_path(v: str) -> str:
 # ---------------------------------------------------------------------------
 # AI Tool / Skill 调用入参与返回值
 # ---------------------------------------------------------------------------
-@dataclass
-class ProcessParams:
-    """每次调用 process() 的独立参数，AI 调用方只需构造此对象。"""
+class ProcessParams(BaseModel):
+    """处理文档的主要参数配置模型。"""
 
-    file_path: str
-    output_dir: str
-    steps: list[str] = field(
-        default_factory=lambda: ["summary", "translate", "original"]
+    file_path: str = Field(..., description="待处理的 PDF 文件路径")
+    output_dir: str = Field(..., description="Markdown 输出文件的保存目录")
+    
+    steps: List[str] = Field(
+        default_factory=lambda: ["summary", "translate", "original"],
+        description="处理步骤列表，可选值: summary, translate, original"
     )
-    src_lang: str = "en"
-    target_lang: str = "zh"
+    src_lang: str = Field(default="en", description="源文档语言代码，默认 'en'")
+    target_lang: str = Field(default="zh", description="目标翻译语言代码，默认 'zh'")
 
     # LLM 连接
-    llm_endpoint: str = ""
-    llm_api_key: str = ""
+    llm_endpoint: str = Field(default="", description="LLM 服务端点 URL")
+    llm_api_key: str = Field(default="", description="LLM API Key")
 
     # 模型与生成参数
-    chat_model_name: str = "llama3"
-    vision_model_name: str = "llama3"
-    gen_conf: dict = field(default_factory=_default_gen_conf)
-    max_context_token_num: int = 1024 * 16
+    chat_model_name: str = Field(default="qwen/qwen3.5-flash-02-23", description="聊天模型名称")
+    vision_model_name: str = Field(default="qwen/qwen3.5-flash-02-23", description="视觉模型名称")
+    
+    gen_conf: GenerationConfig = Field(
+        default_factory=GenerationConfig, 
+        description="生成参数配置 (temperature, top_p, etc.)"
+    )
+    
+    max_context_token_num: int = Field(
+        default=120000, 
+        description="用于总结的最大上下文 token 数"
+    )
 
     # 路径
-    asset_save_dir: str = "attachments"
-    cache_data_dir: str = "~/.cache/llm_cache"
+    asset_save_dir: str = Field(
+        default="attachments", 
+        description="解析后的图片等资源保存目录"
+    )
+    cache_data_dir: str = Field(
+        default="~/.cache/llm_cache", 
+        description="磁盘缓存目录"
+    )
+
+    # OpenDataLoader Docker 配置
+    odl_container_name: str = Field(
+        default="opendataloader-api-server",
+        description="OpenDataLoader Docker 容器名称",
+    )
+    odl_volume_host_dir: str = Field(
+        default="",
+        description="挂载到容器 /data 的宿主机目录绝对路径（需与 docker run -v 一致）",
+    )
+    odl_hybrid_mode: str = Field(
+        default="full",
+        description="Hybrid 模式：full（全页 AI，最高精度）或 auto（自动分流，内存占用小）",
+    )
 
     # prompt 模板
-    prompt_translate: str = DEFAULT_PROMPT_TRANSLATE
-    prompt_summary: str = DEFAULT_PROMPT_SUMMARY
+    prompt_translate: str = Field(
+        default=DEFAULT_PROMPT_TRANSLATE,
+        description="翻译 Prompt 模板，支持 {src_lang}, {target_lang}, {content} 占位符"
+    )
+    prompt_summary: str = Field(
+        default=DEFAULT_PROMPT_SUMMARY,
+        description="总结 Prompt 模板，支持 {src_lang}, {target_lang}, {content} 占位符"
+    )
 
-    def __post_init__(self) -> None:
+    @model_validator(mode='after')
+    def resolve_defaults_and_paths(self) -> 'ProcessParams':
         # 从环境变量回退读取 LLM 连接信息
         if not self.llm_endpoint:
-            self.llm_endpoint = os.environ.get("LLM_ENDPOINT", "")
+            self.llm_endpoint = os.environ.get("PR_LLM_ENDPOINT", "")
         if not self.llm_api_key:
-            self.llm_api_key = os.environ.get("LLM_API_KEY", "")
+            self.llm_api_key = os.environ.get("PR_LLM_API_KEY", "")
+            
         # 路径展开
-        self.asset_save_dir = _expand_path(self.asset_save_dir)
-        self.cache_data_dir = _expand_path(self.cache_data_dir)
+        if self.asset_save_dir:
+            self.asset_save_dir = _expand_path(self.asset_save_dir)
+        if self.cache_data_dir:
+            self.cache_data_dir = _expand_path(self.cache_data_dir)
+        if self.output_dir:
+            self.output_dir = _expand_path(self.output_dir)
+        if self.file_path:
+            self.file_path = _expand_path(self.file_path)
+        if self.odl_volume_host_dir:
+            self.odl_volume_host_dir = _expand_path(self.odl_volume_host_dir)
+            
+        return self
 
 
-@dataclass
-class ProcessResult:
+class ProcessResult(BaseModel):
     """process() 的结构化返回值。"""
 
-    output_file: str
-    steps_completed: list[str]
-    elapsed_seconds: float
+    output_file: str = Field(..., description="生成的 Markdown 文件路径")
+    steps_completed: List[str] = Field(..., description="完成的处理步骤")
+    elapsed_seconds: float = Field(..., description="总耗时(秒)")
 
 
-@dataclass
-class ExtractPagesParams:
-    """每次调用 run_extract_pages() 的独立参数，AI 调用方只需构造此对象。"""
+class ExtractPagesParams(BaseModel):
+    """run_extract_pages() 的参数配置模型。"""
 
-    input_pdf: str
-    pages: list[str]
-    output_dir: str | None = None
+    input_pdf: str = Field(..., description="输入 PDF 文件路径")
+    pages: List[str] = Field(..., description="页码范围列表，例如 ['1-5', '10']")
+    output_dir: Optional[str] = Field(None, description="输出目录，默认与输入文件相同")
