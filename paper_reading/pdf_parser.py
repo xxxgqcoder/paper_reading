@@ -111,12 +111,24 @@ class OpenDataLoaderParser:
         elements: list[dict[str, Any]] = doc.get("kids", [])
         output_dir = os.path.join(self.volume_host_dir, "output")
 
-        return self._process_elements(
+        contents = self._process_elements(
             elements=elements,
             output_dir=output_dir,
             asset_save_dir=asset_save_dir,
             file_path=file_path,
         )
+        self._stop_container()
+        return contents
+
+    def _stop_container(self) -> None:
+        """解析完成后停止并删除 Docker 容器，释放资源。"""
+        Logger.info(f"Removing container '{self.container_name}' after parsing ...")
+        subprocess.run(
+            ["docker", "rm", "-f", self.container_name],
+            capture_output=True,
+            text=True,
+        )
+        Logger.info(f"Container '{self.container_name}' removed.")
 
     def _ensure_container_running(self) -> None:
         """确保 OpenDataLoader Docker 容器正在运行。
