@@ -63,10 +63,10 @@ docker run -d --name opendataloader-api-server \
 | `target_lang` | `str` | 否 | `"zh"` | 目标语言代码 |
 | `llm_endpoint` | `str` | 否 | env `PR_LLM_ENDPOINT` | LLM API 地址 |
 | `llm_api_key` | `str` | 否 | env `PR_LLM_API_KEY` | API Key |
-| `chat_model_name` | `str` | 否 | `"llama3"` | 文本模型名称 |
-| `vision_model_name` | `str` | 否 | `"llama3"` | 视觉模型名称 |
+| `chat_model_name` | `str` | 否 | `"qwen/qwen3.5-flash-02-23"` | 文本模型名称 |
+| `vision_model_name` | `str` | 否 | `"qwen/qwen3.5-flash-02-23"` | 视觉模型名称 |
 | `gen_conf` | `dict` | 否 | `{temperature: 0.7, top_p: 0.3, ...}` | 生成参数 |
-| `max_context_token_num` | `int` | 否 | `16384` | 摘要最大输入 token 数 |
+| `max_context_token_num` | `int` | 否 | `120000` | 摘要最大输入 token 数 |
 | `asset_save_dir` | `str` | 否 | `""` | 解析资源保存目录 |
 | `cache_data_dir` | `str` | 否 | `"~/.cache/llm_cache"` | 磁盘缓存目录 |
 

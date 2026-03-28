@@ -127,8 +127,8 @@ class ProcessParams(BaseModel):
     llm_api_key: str = Field(default="", description="LLM API Key")
 
     # 模型与生成参数
-    chat_model_name: str = Field(default="llama3", description="聊天模型名称")
-    vision_model_name: str = Field(default="llama3", description="视觉模型名称")
+    chat_model_name: str = Field(default="qwen/qwen3.5-flash-02-23", description="聊天模型名称")
+    vision_model_name: str = Field(default="qwen/qwen3.5-flash-02-23", description="视觉模型名称")
     
     gen_conf: GenerationConfig = Field(
         default_factory=GenerationConfig, 
@@ -136,7 +136,7 @@ class ProcessParams(BaseModel):
     )
     
     max_context_token_num: int = Field(
-        default=1024 * 16, 
+        default=120000, 
         description="用于总结的最大上下文 token 数"
     )
 
