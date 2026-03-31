@@ -26,3 +26,16 @@
 
 .env
 .env.*
+
+# 二进制文件
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+
+# 输出目录
+attachments/
+*_images/

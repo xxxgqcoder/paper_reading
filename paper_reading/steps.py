@@ -48,6 +48,9 @@ async def save_parsed_content(ctx: StepContext) -> None:
         lines = ""
         if content.content_type == ContentType.TEXT:
             lines += content.content + line_breaker
+        elif content.content_type == ContentType.FORMULA:
+            # LaTeX 公式块，用 $$ 包裹保留数学格式
+            lines += f"\n$$\n{content.content}\n$$\n" + line_breaker
         elif content.content_type in [ContentType.IMAGE, ContentType.TABLE]:
             if content.content_url:
                 # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示
@@ -120,7 +123,7 @@ async def translate_content(ctx: StepContext) -> None:
     i = 0
     max_content_num = 20
     while i < len(content_list):
-        if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE]:
+        if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE, ContentType.FORMULA]:
             img_path = None
             if content_list[i].content_url:
                 # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示
@@ -152,7 +155,11 @@ async def translate_content(ctx: StepContext) -> None:
             Logger.info(
                 f"Translating content {idx}, type: {content_list[idx].content_type}"
             )
-            if img_path:
+            if content_list[idx].content_type == ContentType.FORMULA:
+                # 数学公式不翻译，直接输出 LaTeX 块
+                result += f"\n$$\n{content_list[idx].content}\n$$\n" + line_breaker
+                return result
+            elif img_path:
                 result += img_path + line_breaker + line_breaker
             elif (
                 content_list[idx].content_type == ContentType.TABLE
@@ -201,6 +208,9 @@ async def summary_content(ctx: StepContext) -> None:
     for content in ctx.content_list:
         if content.content_type == ContentType.TEXT:
             full_content += content.content + line_breaker
+        elif content.content_type == ContentType.FORMULA:
+            # 公式以 LaTeX 形式纳入摘要上下文，LLM 可理解数学含义
+            full_content += f"$$\n{content.content}\n$$\n" + line_breaker
         elif content.content_type in [ContentType.IMAGE, ContentType.TABLE]:
             if (
                 content.content_type == ContentType.TABLE

@@ -215,6 +215,12 @@ def main() -> None:
         choices=["auto", "full"],
         help="OpenDataLoader hybrid mode: full (default, highest accuracy, high memory) or auto",
     )
+    parser.add_argument(
+        "--odl_hybrid_pipeline",
+        default="docling-fast",
+        choices=["docling-fast", "docling"],
+        help="OpenDataLoader hybrid pipeline: docling-fast (default, faster) or docling (higher accuracy for formulas/tables)",
+    )
 
     # --- extract-pages 参数 ---
     parser.add_argument("--input_pdf", help="path to input PDF (for extract-pages)")
@@ -321,6 +327,7 @@ def main() -> None:
                 odl_container_name=args.odl_container_name,
                 odl_volume_host_dir=args.odl_volume_host_dir,
                 odl_hybrid_mode=args.odl_hybrid_mode,
+                odl_hybrid_pipeline=args.odl_hybrid_pipeline,
             )
     except Exception as e:
         print(json.dumps({"status": "error", "error": f"Invalid configuration: {e}"}, ensure_ascii=False))
