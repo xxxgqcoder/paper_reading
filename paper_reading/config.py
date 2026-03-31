@@ -69,6 +69,7 @@ class ContentType(StrEnum):
     AUDIO = "audio"
     IMAGE = "image"
     TABLE = "table"
+    FORMULA = "formula"
 
 
 class Content(BaseModel):
@@ -162,6 +163,10 @@ class ProcessParams(BaseModel):
     odl_hybrid_mode: str = Field(
         default="full",
         description="Hybrid 模式：full（全页 AI，最高精度）或 auto（自动分流，内存占用小）",
+    )
+    odl_hybrid_pipeline: str = Field(
+        default="docling-fast",
+        description="Hybrid 管线：docling-fast（轻量，速度快）或 docling（完整模型，公式/表格精度更高）",
     )
 
     # prompt 模板

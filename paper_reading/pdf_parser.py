@@ -41,10 +41,12 @@ class OpenDataLoaderParser:
         container_name: str = "opendataloader-api-server",
         volume_host_dir: str = "",
         hybrid_mode: str = "auto",
+        hybrid_pipeline: str = "docling-fast",
     ):
         self.container_name = container_name
         self.volume_host_dir = volume_host_dir
         self.hybrid_mode = hybrid_mode
+        self.hybrid_pipeline = hybrid_pipeline
 
     def key_generator(self, file_path: str, **kwargs) -> str:
         file_bytes = b""
@@ -101,7 +103,7 @@ class OpenDataLoaderParser:
                 "--format",
                 "json",
                 "--hybrid",
-                "docling-fast",
+                self.hybrid_pipeline,
                 "--hybrid-mode",
                 self.hybrid_mode,
                 "--hybrid-url",
@@ -261,7 +263,28 @@ class OpenDataLoaderParser:
                 if content:
                     contents.append(content)
 
-            elif elem_type in ("paragraph", "heading", "formula", "list"):
+            elif elem_type == "formula":
+                # 跳过位于图片 bbox 内的公式
+                if bbox and page in image_bboxes_by_page and any(
+                    _bbox_contains(img_bbox, bbox)
+                    for img_bbox in image_bboxes_by_page[page]
+                ):
+                    continue
+
+                latex = elem.get("content", "").strip()
+                if not latex:
+                    continue
+                contents.append(
+                    Content(
+                        content_type=ContentType.FORMULA,
+                        file_path=file_path,
+                        content=safe_encode(latex),
+                        extra_description="",
+                        content_url="",
+                    )
+                )
+
+            elif elem_type in ("paragraph", "heading", "list"):
                 # 跳过位于图片 bbox 内的文字（过滤图片中的 OCR 文字）
                 if bbox and page in image_bboxes_by_page and any(
                     _bbox_contains(img_bbox, bbox)

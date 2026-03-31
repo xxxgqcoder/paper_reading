@@ -16,11 +16,11 @@ from .utils import line_breaker, time_it
 
 @time_it(prefix="parse_pdf")
 def parse_pdf(
-    file_path: str, container_name: str, volume_host_dir: str, hybrid_mode: str, asset_save_dir: str
+    file_path: str, container_name: str, volume_host_dir: str, hybrid_mode: str, hybrid_pipeline: str, asset_save_dir: str
 ) -> list[Content]:
     Logger.info(f"Begin to parse file: {file_path}")
     parser = OpenDataLoaderParser(
-        container_name=container_name, volume_host_dir=volume_host_dir, hybrid_mode=hybrid_mode
+        container_name=container_name, volume_host_dir=volume_host_dir, hybrid_mode=hybrid_mode, hybrid_pipeline=hybrid_pipeline
     )
     content_list = parser.parse(file_path, asset_save_dir=asset_save_dir)
     Logger.info(f"Parsed {len(content_list)} contents from {file_path}")
@@ -34,8 +34,11 @@ async def process(params: ProcessParams) -> ProcessResult:
     """
     begin_ts = time.time()
 
-    # 校验 LLM endpoint
-    if not params.llm_endpoint:
+    enabled_steps = parse_steps(params.steps)
+    llm_steps = {Step for Step in enabled_steps if Step.value in ("summary", "translate")}
+
+    # 只有在需要 LLM 的步骤启用时才校验 endpoint
+    if llm_steps and not params.llm_endpoint:
         raise ValueError(
             "ProcessParams.llm_endpoint is empty. "
             "Please set it via CLI --llm_endpoint or env var PR_LLM_ENDPOINT."
@@ -48,7 +51,6 @@ async def process(params: ProcessParams) -> ProcessResult:
     src_lang_display = LANG_MAPPING.get(params.src_lang, params.src_lang)
     target_lang_display = LANG_MAPPING.get(params.target_lang, params.target_lang)
 
-    enabled_steps = parse_steps(params.steps)
     step_names = [s.value for s in STEP_OUTPUT_ORDER if s in enabled_steps]
     Logger.info(f"Processing started, enabled steps: {step_names}")
 
@@ -68,6 +70,7 @@ async def process(params: ProcessParams) -> ProcessResult:
         container_name=params.odl_container_name,
         volume_host_dir=params.odl_volume_host_dir,
         hybrid_mode=params.odl_hybrid_mode,
+        hybrid_pipeline=params.odl_hybrid_pipeline,
         asset_save_dir=params.asset_save_dir,
     )
 
