@@ -16,11 +16,21 @@ from .utils import line_breaker, time_it
 
 @time_it(prefix="parse_pdf")
 def parse_pdf(
-    file_path: str, container_name: str, volume_host_dir: str, hybrid_mode: str, hybrid_pipeline: str, asset_save_dir: str
+    file_path: str,
+    container_name: str,
+    volume_host_dir: str,
+    hybrid_mode: str,
+    hybrid_pipeline: str,
+    parse_timeout: int,
+    asset_save_dir: str,
 ) -> list[Content]:
     Logger.info(f"Begin to parse file: {file_path}")
     parser = OpenDataLoaderParser(
-        container_name=container_name, volume_host_dir=volume_host_dir, hybrid_mode=hybrid_mode, hybrid_pipeline=hybrid_pipeline
+        container_name=container_name,
+        volume_host_dir=volume_host_dir,
+        hybrid_mode=hybrid_mode,
+        hybrid_pipeline=hybrid_pipeline,
+        parse_timeout=parse_timeout,
     )
     content_list = parser.parse(file_path, asset_save_dir=asset_save_dir)
     Logger.info(f"Parsed {len(content_list)} contents from {file_path}")
@@ -35,7 +45,9 @@ async def process(params: ProcessParams) -> ProcessResult:
     begin_ts = time.time()
 
     enabled_steps = parse_steps(params.steps)
-    llm_steps = {Step for Step in enabled_steps if Step.value in ("summary", "translate")}
+    llm_steps = {
+        Step for Step in enabled_steps if Step.value in ("summary", "translate")
+    }
 
     # 只有在需要 LLM 的步骤启用时才校验 endpoint
     if llm_steps and not params.llm_endpoint:
@@ -71,6 +83,7 @@ async def process(params: ProcessParams) -> ProcessResult:
         volume_host_dir=params.odl_volume_host_dir,
         hybrid_mode=params.odl_hybrid_mode,
         hybrid_pipeline=params.odl_hybrid_pipeline,
+        parse_timeout=params.odl_parse_timeout,
         asset_save_dir=params.asset_save_dir,
     )
 

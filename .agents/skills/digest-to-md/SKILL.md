@@ -22,6 +22,8 @@ description: 'Digest academic PDF papers by summarizing and translating them int
 
 ```sh
 uv tool install paper-reading
+# 首次使用公式识别前，预下载模型到本地缓存
+paper-reading download-models
 # 部署 Skill 到全局目录（可选，使 Agent 自动发现）
 paper-reading install-skills
 ```
@@ -36,6 +38,8 @@ docker build -t opendataloader-api-server /path/to/paper_reading/paper_reading/
 # 启动容器
 docker run -d --name opendataloader-api-server \
   -v /absolute/host/path:/data \
+    -v ~/.cache/huggingface:/root/.cache/huggingface \
+    -e OMP_NUM_THREADS=10 \
   -p 5002:5002 \
   opendataloader-api-server
 ```
@@ -46,6 +50,9 @@ docker run -d --name opendataloader-api-server \
 |---|---|---|
 | `PR_LLM_ENDPOINT` | 是 | LLM API 地址（如 `http://127.0.0.1:11434` 或 `https://openrouter.ai/api/v1`） |
 | `PR_LLM_API_KEY` | 否 | API Key，留空则使用 Ollama 原生协议 |
+| `ODL_OMP_THREADS` | 否 | OpenDataLoader CPU 线程数，默认建议 `10` |
+| `ODL_PARSE_TIMEOUT` | 否 | OpenDataLoader 解析超时秒数，默认建议 `3600` |
+| `HF_HOME` | 否 | HuggingFace 模型缓存目录，默认 `~/.cache/huggingface` |
 
 ## 输入参数
 
@@ -57,6 +64,7 @@ docker run -d --name opendataloader-api-server \
 | `output_dir` | `str` | 是 | — | 输出 Markdown 文件的**宿主机绝对路径** |
 | `odl_volume_host_dir` | `str` | 是 | — | 挂载到容器 `/data` 的宿主机绝对路径 |
 | `odl_hybrid_mode` | `str` | 否 | `"full"` | 解析模式：`full` 或 `auto` |
+| `odl_parse_timeout` | `int` | 否 | `3600` | OpenDataLoader 解析超时秒数 |
 | `odl_container_name` | `str` | 否 | `"opendataloader-api-server"` | Docker 容器名称 |
 | `steps` | `list[str]` | 否 | `["summary", "translate", "original"]` | 执行的步骤列表 |
 | `src_lang` | `str` | 否 | `"en"` | 源语言代码 |
@@ -109,9 +117,10 @@ paper-reading \
     --final_md_file_save_dir /path/to/host_data/output \
     --odl_volume_host_dir /path/to/host_data \
     --odl_hybrid_mode full \
+    --odl_parse_timeout 3600 \
     --steps summary,translate,original \
     --src_lang en \
     --target_lang zh \
-    --chat_model_name llama3 \
+  --chat_model_name qwen/qwen3.5-flash-02-23 \
     --llm_endpoint http://127.0.0.1:11434
 ```

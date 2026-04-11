@@ -42,11 +42,13 @@ class OpenDataLoaderParser:
         volume_host_dir: str = "",
         hybrid_mode: str = "auto",
         hybrid_pipeline: str = "docling-fast",
+        parse_timeout: int = 3600,
     ):
         self.container_name = container_name
         self.volume_host_dir = volume_host_dir
         self.hybrid_mode = hybrid_mode
         self.hybrid_pipeline = hybrid_pipeline
+        self.parse_timeout = parse_timeout
 
     def key_generator(self, file_path: str, **kwargs) -> str:
         file_bytes = b""
@@ -80,38 +82,53 @@ class OpenDataLoaderParser:
         
         target_pdf_path = os.path.join(volume_host_dir_abs, pdf_filename)
         if not file_path_abs.startswith(volume_host_dir_abs):
-            Logger.warning(f"File {file_path_abs} is outside of volume_host_dir {volume_host_dir_abs}. Copying to it...")
+            Logger.warning(
+                f"File {file_path_abs} is outside of volume_host_dir "
+                f"{volume_host_dir_abs}. Copying to it..."
+            )
             import shutil
+
             shutil.copy2(file_path_abs, target_pdf_path)
         elif not os.path.exists(target_pdf_path):
-             # 即使在目录下，如果文件名不一致（软链接等情况），也确保目标路径存在
-             import shutil
-             shutil.copy2(file_path_abs, target_pdf_path)
+            # 即使在目录下，如果文件名不一致（软链接等情况），也确保目标路径存在
+            import shutil
+
+            shutil.copy2(file_path_abs, target_pdf_path)
 
         self._ensure_container_running()
 
         Logger.info(f"Parsing PDF via OpenDataLoader container: {self.container_name}")
-        result = subprocess.run(
-            [
-                "docker",
-                "exec",
-                self.container_name,
-                "opendataloader-pdf",
-                f"/data/{pdf_filename}",
-                "--output-dir",
-                "/data/output",
-                "--format",
-                "json",
-                "--hybrid",
-                self.hybrid_pipeline,
-                "--hybrid-mode",
-                self.hybrid_mode,
-                "--hybrid-url",
-                "http://localhost:5002",
-            ],
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "docker",
+                    "exec",
+                    self.container_name,
+                    "opendataloader-pdf",
+                    f"/data/{pdf_filename}",
+                    "--output-dir",
+                    "/data/output",
+                    "--format",
+                    "json",
+                    "--hybrid",
+                    self.hybrid_pipeline,
+                    "--hybrid-mode",
+                    self.hybrid_mode,
+                    "--hybrid-url",
+                    "http://localhost:5002",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=self.parse_timeout,  # 可配置超时保护，默认 3600秒（1小时）
+            )
+        except subprocess.TimeoutExpired as err:
+            raise RuntimeError(
+                f"OpenDataLoader parsing timed out after {self.parse_timeout} seconds. "
+                f"This may happen when processing PDFs with many formulas on CPU. "
+                f"Formula enrichment typically takes 30-100s per formula image on CPU. "
+                f"Consider increasing odl_parse_timeout or using GPU acceleration."
+            ) from err
+        
         if result.returncode != 0:
             raise RuntimeError(
                 f"OpenDataLoader extraction failed"
@@ -157,7 +174,13 @@ class OpenDataLoaderParser:
         """
         # 检查容器是否正在运行
         inspect = subprocess.run(
-            ["docker", "inspect", "--format", "{{.State.Running}}", self.container_name],
+            [
+                "docker",
+                "inspect",
+                "--format",
+                "{{.State.Running}}",
+                self.container_name,
+            ],
             capture_output=True,
             text=True,
         )
@@ -197,17 +220,27 @@ class OpenDataLoaderParser:
         )
 
         # 启动容器，将 volume_host_dir 挂载至 /data
+        # 同时挂载 HuggingFace 缓存目录，避免运行时下载模型
         Logger.info(f"Starting container '{self.container_name}' ...")
+        hf_cache_host = os.path.expanduser("~/.cache/huggingface")
+        
+        # 优化 CPU 线程数：默认 docling 使用 4 线程，增加到 10 线程以加速 VLM 推理
+        # 可通过环境变量 ODL_OMP_THREADS 覆盖（避免占满所有核心影响系统响应）
+        omp_threads = os.getenv("ODL_OMP_THREADS", "10")
+        
         run = subprocess.run(
             [
                 "docker", "run", "-d",
                 "--name", self.container_name,
                 "-v", f"{self.volume_host_dir}:/data",
+                "-v", f"{hf_cache_host}:/root/.cache/huggingface",
+                "-e", f"OMP_NUM_THREADS={omp_threads}",
                 "-p", "5002:5002",
                 image_name,
             ],
             capture_output=True,
             text=True,
+            timeout=self.parse_timeout,
         )
         if run.returncode != 0:
             raise RuntimeError(
@@ -378,7 +411,8 @@ class OpenDataLoaderParser:
             file_path=file_path,
             content=load_base64_image(dst_path),
             extra_description="",
-            content_url=os.path.abspath(dst_path),  # 始终用绝对路径，供 steps 计算相对路径
+            # 始终用绝对路径，供 steps 计算相对路径
+            content_url=os.path.abspath(dst_path),
         )
 
     def _render_image_from_pdf(

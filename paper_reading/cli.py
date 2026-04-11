@@ -3,6 +3,7 @@
 Commands:
   process (default)   Parse PDF, optional summary/translate; output Markdown.
   extract-pages       Extract page ranges from a PDF.
+  download-models     Download OpenDataLoader models to local cache.
   install-skills      Deploy SKILL.md to ~/.agents/skills/.
   get-schema          Print the JSON schema for ProcessParams.
 
@@ -12,6 +13,9 @@ Usage (process):
 
 Usage (extract-pages):
     paper-reading extract-pages --input_pdf <pdf> --pages 1-10 3,5-7
+
+Usage (download-models):
+    paper-reading download-models [--model <model_name>]
 
 Usage (install-skills):
     paper-reading install-skills [--uninstall]
@@ -29,7 +33,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import ExtractPagesParams, ProcessParams, GenerationConfig, Step
+from .config import ExtractPagesParams, GenerationConfig, ProcessParams, Step
 from .extract_pages import run_extract_pages
 from .log import Logger
 from .pipeline import process
@@ -40,6 +44,128 @@ if not _SKILLS_DIR.is_dir():
     _SKILLS_DIR = Path(__file__).parent.parent / ".agents" / "skills"
 # 全局 skill 安装目标目录
 _GLOBAL_SKILLS_DIR = Path.home() / ".agents" / "skills"
+
+
+def _download_models(model_name: str = "all") -> None:
+    """下载 OpenDataLoader 所需的模型到本地缓存。
+
+    Args:
+        model_name: 要下载的模型名称，默认 "all" 下载所有模型
+    """
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": (
+                        "huggingface_hub is not installed. "
+                        "Please run: uv add huggingface-hub"
+                    ),
+                },
+                ensure_ascii=False,
+            )
+        )
+        sys.exit(1)
+
+    # 模型配置
+    models = {
+        "code-formula": {
+            "repo_id": "docling-project/CodeFormulaV2",
+            "description": (
+                "Formula and code extraction model "
+                "(for PDF formula enrichment)"
+            ),
+            "size": "~5GB",
+        }
+    }
+
+    # 确定要下载的模型
+    if model_name == "all":
+        models_to_download = models
+    elif model_name in models:
+        models_to_download = {model_name: models[model_name]}
+    else:
+        print(
+            json.dumps(
+                {
+                    "status": "error",
+                    "error": (
+                        f"Unknown model: {model_name}. "
+                        f"Available: {', '.join(models.keys())}, all"
+                    ),
+                },
+                ensure_ascii=False,
+            )
+        )
+        sys.exit(1)
+
+    # 使用环境变量或默认值
+    cache_dir = os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
+
+    results = []
+    for name, info in models_to_download.items():
+        repo_id = info["repo_id"]
+        print(
+            json.dumps(
+                {
+                    "status": "downloading",
+                    "model": name,
+                    "repo_id": repo_id,
+                    "description": info["description"],
+                    "size": info["size"],
+                    "cache_dir": cache_dir,
+                },
+                ensure_ascii=False,
+            )
+        )
+
+        try:
+            local_path = snapshot_download(
+                repo_id=repo_id,
+                cache_dir=cache_dir,
+                resume_download=True,  # 支持断点续传
+                local_files_only=False,
+            )
+
+            results.append(
+                {
+                    "model": name,
+                    "repo_id": repo_id,
+                    "status": "success",
+                    "path": local_path,
+                }
+            )
+
+        except Exception as e:
+            results.append(
+                {
+                    "model": name,
+                    "repo_id": repo_id,
+                    "status": "error",
+                    "error": str(e),
+                }
+            )
+
+    # 输出最终结果
+    success_count = sum(1 for r in results if r["status"] == "success")
+    print(
+        json.dumps(
+            {
+                "status": "completed" if success_count == len(results) else "partial",
+                "downloaded": success_count,
+                "total": len(results),
+                "results": results,
+                "cache_dir": cache_dir,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+    if success_count < len(results):
+        sys.exit(1)
 
 
 def _install_skills(uninstall: bool = False) -> None:
@@ -102,10 +228,10 @@ def _install_skills(uninstall: bool = False) -> None:
 
 def main() -> None:
     valid_steps = ",".join(s.value for s in Step)
-    
+
     # 获取 GenerationConfig 的默认值作为 argparse 的默认值
     default_gen_conf = GenerationConfig()
-    
+
     parser = argparse.ArgumentParser(
         description=(
             "PDF tool: parse/translate/summarize (default),"
@@ -118,7 +244,7 @@ def main() -> None:
     # 但 argparse 原生不支持这种混合模式很容易。这里我们采用显式添加 process 子命令
     # 同时在如果不匹配任何子命令时，尝试解析为主命令参数
     # 为简单起见，我们把 process 的参数加到主解析器上，但也添加 explicit command
-    
+
     # 策略：如果不带任何子命令，会被视作 process
     pass
 
@@ -126,8 +252,17 @@ def main() -> None:
         "command_arg",
         nargs="?",
         default="process",
-        choices=["process", "extract-pages", "install-skills", "get-schema"],
-        help="process (default), extract-pages, or install-skills",
+        choices=[
+            "process",
+            "extract-pages",
+            "download-models",
+            "install-skills",
+            "get-schema",
+        ],
+        help=(
+            "process (default), extract-pages, download-models, "
+            "install-skills, or get-schema"
+        ),
     )
 
     # --- process 参数 ---
@@ -149,12 +284,20 @@ def main() -> None:
         "--target_lang", default="zh", help="target language (default: zh)"
     )
     parser.add_argument(
-        "--chat_model_name", default="llama3", help="chat model name (default: llama3)"
+        "--chat_model_name",
+        default="qwen/qwen3.5-flash-02-23",
+        help=(
+            "chat model name "
+            "(default: qwen/qwen3.5-flash-02-23)"
+        ),
     )
     parser.add_argument(
         "--vision_model_name",
-        default="llama3",
-        help="vision model name (default: llama3)",
+        default="qwen/qwen3.5-flash-02-23",
+        help=(
+            "vision model name "
+            "(default: qwen/qwen3.5-flash-02-23)"
+        ),
     )
     parser.add_argument(
         "--temperature",
@@ -180,14 +323,18 @@ def main() -> None:
     parser.add_argument(
         "--max_context_token_num",
         type=int,
-        default=1024 * 16,
+        default=120000,
         help="max input token num for summary",
     )
     parser.add_argument(
-        "--asset_save_dir", default="attachments", help="directory to save parsed assets"
+        "--asset_save_dir",
+        default="attachments",
+        help="directory to save parsed assets",
     )
     parser.add_argument(
-        "--cache_data_dir", default="~/.cache/llm_cache", help="disk cache directory"
+        "--cache_data_dir",
+        default="~/.cache/llm_cache",
+        help="disk cache directory",
     )
     parser.add_argument(
         "--llm_endpoint",
@@ -202,24 +349,45 @@ def main() -> None:
     parser.add_argument(
         "--odl_container_name",
         default="opendataloader-api-server",
-        help="OpenDataLoader Docker container name (default: opendataloader-api-server)",
+        help=(
+            "OpenDataLoader Docker container name "
+            "(default: opendataloader-api-server)"
+        ),
     )
     parser.add_argument(
         "--odl_volume_host_dir",
         default=os.environ.get("ODL_VOLUME_HOST_DIR", ""),
-        help="Host directory mounted as /data in the OpenDataLoader container (default: env ODL_VOLUME_HOST_DIR)",
+        help=(
+            "Host directory mounted as /data in the OpenDataLoader container "
+            "(default: env ODL_VOLUME_HOST_DIR)"
+        ),
     )
     parser.add_argument(
         "--odl_hybrid_mode",
         default="full",
         choices=["auto", "full"],
-        help="OpenDataLoader hybrid mode: full (default, highest accuracy, high memory) or auto",
+        help=(
+            "OpenDataLoader hybrid mode: full (default, highest accuracy, "
+            "high memory) or auto"
+        ),
     )
     parser.add_argument(
         "--odl_hybrid_pipeline",
         default="docling-fast",
         choices=["docling-fast", "docling"],
-        help="OpenDataLoader hybrid pipeline: docling-fast (default, faster) or docling (higher accuracy for formulas/tables)",
+        help=(
+            "OpenDataLoader hybrid pipeline: docling-fast (default, faster) "
+            "or docling (higher accuracy for formulas/tables)"
+        ),
+    )
+    parser.add_argument(
+        "--odl_parse_timeout",
+        type=int,
+        default=int(os.environ.get("ODL_PARSE_TIMEOUT", "3600")),
+        help=(
+            "OpenDataLoader parse timeout in seconds "
+            "(default: env ODL_PARSE_TIMEOUT or 3600)"
+        ),
     )
 
     # --- extract-pages 参数 ---
@@ -238,12 +406,32 @@ def main() -> None:
         help="remove installed skills (for install-skills)",
     )
 
+    # --- download-models 参数 ---
+    parser.add_argument(
+        "--model",
+        default="all",
+        help=(
+            "model name to download: code-formula, all "
+            "(default: all, for download-models)"
+        ),
+    )
+
     args = parser.parse_args()
 
     # 命令分发
     if args.command_arg == "get-schema":
         # 输出 JSON Schema
-        print(json.dumps(ProcessParams.model_json_schema(), indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                ProcessParams.model_json_schema(),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+        return
+
+    if args.command_arg == "download-models":
+        _download_models(model_name=args.model)
         return
 
     if args.command_arg == "install-skills":
@@ -251,14 +439,12 @@ def main() -> None:
         return
 
     if args.command_arg == "extract-pages":
+        if not args.input_pdf and args.file_path and args.pages:
+            # 尝试使用 --file_path 作为 fallback
+            args.input_pdf = args.file_path
         if not args.input_pdf or not args.pages:
-            if not args.input_pdf:
-                # 尝试使用 --file_path 作为 fallback
-                if args.file_path and args.pages:
-                    args.input_pdf = args.file_path
-                else:
-                    parser.error("extract-pages requires --input_pdf and --pages")
-        
+            parser.error("extract-pages requires --input_pdf and --pages")
+
         begin_ts = time.time()
         try:
             params = ExtractPagesParams(
@@ -292,23 +478,26 @@ def main() -> None:
             config_path = Path(args.config)
             if not config_path.is_file():
                 parser.error(f"Config file not found: {args.config}")
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 # 允许传入部分参数，从 CLI 补全吗？不，简单起见，config 文件优先且完备
                 # 或者，我们可以先加载 config，也就是个 dict，然后 validate
                 config_data = json.load(f)
                 params = ProcessParams.model_validate(config_data)
         else:
             if not args.file_path or not args.final_md_file_save_dir:
-                parser.error("process requires --file_path and --final_md_file_save_dir (or --config)")
-            
+                parser.error(
+                    "process requires --file_path and "
+                    "--final_md_file_save_dir (or --config)"
+                )
+
             # 手动构造 GenerationConfig
             gen_conf = GenerationConfig(
                 temperature=args.temperature,
                 top_p=args.top_p,
                 repeat_penalty=args.repeat_penalty,
-                num_ctx=args.num_ctx
+                num_ctx=args.num_ctx,
             )
-            
+
             # 构造 ProcessParams
             params = ProcessParams(
                 file_path=args.file_path,
@@ -328,9 +517,15 @@ def main() -> None:
                 odl_volume_host_dir=args.odl_volume_host_dir,
                 odl_hybrid_mode=args.odl_hybrid_mode,
                 odl_hybrid_pipeline=args.odl_hybrid_pipeline,
+                odl_parse_timeout=args.odl_parse_timeout,
             )
     except Exception as e:
-        print(json.dumps({"status": "error", "error": f"Invalid configuration: {e}"}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"status": "error", "error": f"Invalid configuration: {e}"},
+                ensure_ascii=False,
+            )
+        )
         sys.exit(1)
 
     Logger.info(f"Processing file: {os.path.basename(params.file_path)}")
