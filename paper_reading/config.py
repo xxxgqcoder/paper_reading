@@ -168,6 +168,10 @@ class ProcessParams(BaseModel):
         default="docling-fast",
         description="Hybrid 管线：docling-fast（轻量，速度快）或 docling（完整模型，公式/表格精度更高）",
     )
+    odl_parse_timeout: int = Field(
+        default=3600,
+        description="OpenDataLoader PDF 解析超时时间（秒）。CPU 模式下 formula enrichment 很慢，大约每个公式30-100秒，建议设置为 3600（1小时）",
+    )
 
     # prompt 模板
     prompt_translate: str = Field(
