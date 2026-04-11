@@ -121,6 +121,6 @@ paper-reading \
     --steps summary,translate,original \
     --src_lang en \
     --target_lang zh \
-    --chat_model_name llama3 \
+  --chat_model_name qwen/qwen3.5-flash-02-23 \
     --llm_endpoint http://127.0.0.1:11434
 ```

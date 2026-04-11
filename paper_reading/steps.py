@@ -29,7 +29,7 @@ class StepContext:
     gen_conf: dict[str, Any] = field(default_factory=dict)
     prompt_translate: str = ""
     prompt_summary: str = ""
-    max_context_token_num: int = 1024 * 16
+    max_context_token_num: int = 120000
     asset_save_dir: str = ""
     llm_endpoint: str = ""
     llm_api_key: str = ""
@@ -123,7 +123,11 @@ async def translate_content(ctx: StepContext) -> None:
     i = 0
     max_content_num = 20
     while i < len(content_list):
-        if content_list[i].content_type in [ContentType.TABLE, ContentType.IMAGE, ContentType.FORMULA]:
+        if content_list[i].content_type in [
+            ContentType.TABLE,
+            ContentType.IMAGE,
+            ContentType.FORMULA,
+        ]:
             img_path = None
             if content_list[i].content_url:
                 # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示

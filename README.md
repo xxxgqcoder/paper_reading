@@ -117,8 +117,8 @@ uv run python -m paper_reading.cli \
 | `--src_lang` | 否 | 源语言，默认 `en` |
 | `--target_lang` | 否 | 目标语言，默认 `zh` |
 | `--steps` | 否 | 逗号分隔的步骤：`summary`、`translate`、`original` |
-| `--chat_model_name` | 否 | 文本模型名称，默认 `llama3` |
-| `--vision_model_name` | 否 | 视觉模型名称，默认 `llama3` |
+| `--chat_model_name` | 否 | 文本模型名称，默认 `qwen/qwen3.5-flash-02-23` |
+| `--vision_model_name` | 否 | 视觉模型名称，默认 `qwen/qwen3.5-flash-02-23` |
 | `--llm_endpoint` | 否 | LLM API 地址（默认读取 env `PR_LLM_ENDPOINT`） |
 | `--llm_api_key` | 否 | API Key（默认读取 env `PR_LLM_API_KEY`） |
 | `--temperature` | 否 | 生成温度 |
@@ -150,8 +150,8 @@ export PR_LLM_API_KEY=""   # 留空用 Ollama
 
 ```sh
 paper-reading \
-    --chat_model_name qwen3:30b \
-    --vision_model_name qwen2.5vl:7b \
+    --chat_model_name qwen/qwen3.5-flash-02-23 \
+    --vision_model_name qwen/qwen3.5-flash-02-23 \
     --temperature 0.7 --top_p 0.4 --num_ctx 60000 \
     --max_context_token_num 60000 \
     ...

@@ -284,12 +284,20 @@ def main() -> None:
         "--target_lang", default="zh", help="target language (default: zh)"
     )
     parser.add_argument(
-        "--chat_model_name", default="llama3", help="chat model name (default: llama3)"
+        "--chat_model_name",
+        default="qwen/qwen3.5-flash-02-23",
+        help=(
+            "chat model name "
+            "(default: qwen/qwen3.5-flash-02-23)"
+        ),
     )
     parser.add_argument(
         "--vision_model_name",
-        default="llama3",
-        help="vision model name (default: llama3)",
+        default="qwen/qwen3.5-flash-02-23",
+        help=(
+            "vision model name "
+            "(default: qwen/qwen3.5-flash-02-23)"
+        ),
     )
     parser.add_argument(
         "--temperature",
@@ -315,7 +323,7 @@ def main() -> None:
     parser.add_argument(
         "--max_context_token_num",
         type=int,
-        default=1024 * 16,
+        default=120000,
         help="max input token num for summary",
     )
     parser.add_argument(
