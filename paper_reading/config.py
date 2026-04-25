@@ -1,7 +1,5 @@
 import os
 from enum import Enum
-from pathlib import Path
-from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 from strenum import StrEnum
@@ -132,7 +130,7 @@ class ProcessParams(BaseModel):
     file_path: str = Field(..., description="待处理的 PDF 文件路径")
     output_dir: str = Field(..., description="Markdown 输出文件的保存目录")
     
-    steps: List[str] = Field(
+    steps: list[str] = Field(
         default_factory=lambda: ["summary", "original"],
         description="处理步骤列表，可选值: summary, translate, original"
     )
@@ -216,7 +214,7 @@ class ProcessResult(BaseModel):
     """process() 的结构化返回值。"""
 
     output_file: str = Field(..., description="生成的 Markdown 文件路径")
-    steps_completed: List[str] = Field(..., description="完成的处理步骤")
+    steps_completed: list[str] = Field(..., description="完成的处理步骤")
     elapsed_seconds: float = Field(..., description="总耗时(秒)")
 
 
@@ -224,5 +222,5 @@ class ExtractPagesParams(BaseModel):
     """run_extract_pages() 的参数配置模型。"""
 
     input_pdf: str = Field(..., description="输入 PDF 文件路径")
-    pages: List[str] = Field(..., description="页码范围列表，例如 ['1-5', '10']")
-    output_dir: Optional[str] = Field(None, description="输出目录，默认与输入文件相同")
+    pages: list[str] = Field(..., description="页码范围列表，例如 ['1-5', '10']")
+    output_dir: str | None = Field(None, description="输出目录，默认与输入文件相同")
