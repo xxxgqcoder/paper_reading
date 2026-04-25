@@ -39,3 +39,6 @@
 # 输出目录
 attachments/
 *_images/
+
+# 本地批处理脚本（含凭证，不提交）
+batch_process_pdfs.py

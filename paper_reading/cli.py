@@ -3,7 +3,7 @@
 Commands:
   process (default)   Parse PDF, optional summary/translate; output Markdown.
   extract-pages       Extract page ranges from a PDF.
-  download-models     Download OpenDataLoader models to local cache.
+  download-models     Download MineRU models to local cache.
   install-skills      Deploy SKILL.md to ~/.agents/skills/.
   get-schema          Print the JSON schema for ProcessParams.
 
