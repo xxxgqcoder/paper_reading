@@ -9,7 +9,7 @@ from .config import (
     ProcessResult,
 )
 from .log import Logger
-from .pdf_parser import OpenDataLoaderParser
+from .pdf_parser import MineRUParser
 from .steps import STEP_REGISTRY, StepContext, parse_steps
 from .utils import line_breaker, time_it
 
@@ -17,20 +17,14 @@ from .utils import line_breaker, time_it
 @time_it(prefix="parse_pdf")
 def parse_pdf(
     file_path: str,
-    container_name: str,
-    volume_host_dir: str,
-    hybrid_mode: str,
-    hybrid_pipeline: str,
-    parse_timeout: int,
+    model_source: str,
+    device: str,
     asset_save_dir: str,
 ) -> list[Content]:
     Logger.info(f"Begin to parse file: {file_path}")
-    parser = OpenDataLoaderParser(
-        container_name=container_name,
-        volume_host_dir=volume_host_dir,
-        hybrid_mode=hybrid_mode,
-        hybrid_pipeline=hybrid_pipeline,
-        parse_timeout=parse_timeout,
+    parser = MineRUParser(
+        model_source=model_source,
+        device=device,
     )
     content_list = parser.parse(file_path, asset_save_dir=asset_save_dir)
     Logger.info(f"Parsed {len(content_list)} contents from {file_path}")
@@ -79,11 +73,8 @@ async def process(params: ProcessParams) -> ProcessResult:
 
     content_list = parse_pdf(
         file_path=params.file_path,
-        container_name=params.odl_container_name,
-        volume_host_dir=params.odl_volume_host_dir,
-        hybrid_mode=params.odl_hybrid_mode,
-        hybrid_pipeline=params.odl_hybrid_pipeline,
-        parse_timeout=params.odl_parse_timeout,
+        model_source=params.mineru_model_source,
+        device=params.mineru_device,
         asset_save_dir=params.asset_save_dir,
     )
 

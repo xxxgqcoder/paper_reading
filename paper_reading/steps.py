@@ -53,10 +53,9 @@ async def save_parsed_content(ctx: StepContext) -> None:
             lines += f"\n$$\n{content.content}\n$$\n" + line_breaker
         elif content.content_type in [ContentType.IMAGE, ContentType.TABLE]:
             if content.content_url:
-                # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示
-                md_dir = os.path.dirname(os.path.abspath(ctx.md_writer.name))
-                rel_url = os.path.relpath(content.content_url, md_dir)
-                lines += f"![image]({rel_url})" + line_breaker + line_breaker
+                # Obsidian wikilink 格式：仅文件名，由 Obsidian 自动解析路径
+                img_name = os.path.basename(content.content_url)
+                lines += f"![[{img_name}]]" + line_breaker + line_breaker
             elif content.content_type == ContentType.TABLE and content.content:
                 # Markdown 格式的表格
                 lines += content.content + line_breaker
@@ -130,10 +129,9 @@ async def translate_content(ctx: StepContext) -> None:
         ]:
             img_path = None
             if content_list[i].content_url:
-                # 计算相对于 Markdown 文件的相对路径，确保在各渲染器中正常显示
-                md_dir = os.path.dirname(os.path.abspath(ctx.md_writer.name))
-                rel_url = os.path.relpath(content_list[i].content_url, md_dir)
-                img_path = f"![image]({rel_url})"
+                # Obsidian wikilink 格式：仅文件名，由 Obsidian 自动解析路径
+                img_name = os.path.basename(content_list[i].content_url)
+                img_path = f"![[{img_name}]]"
             groups.append(("media", [i], img_path))
             i += 1
             continue
@@ -164,7 +162,9 @@ async def translate_content(ctx: StepContext) -> None:
                 result += f"\n$$\n{content_list[idx].content}\n$$\n" + line_breaker
                 return result
             elif img_path:
-                result += img_path + line_breaker + line_breaker
+                # Obsidian wikilink 格式
+                img_name = os.path.basename(content_list[idx].content_url) if content_list[idx].content_url else ""
+                result += (f"![[{img_name}]]" if img_name else img_path) + line_breaker + line_breaker
             elif (
                 content_list[idx].content_type == ContentType.TABLE
                 and content_list[idx].content

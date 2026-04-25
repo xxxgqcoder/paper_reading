@@ -1,54 +1,49 @@
-import json
+"""MineRU 3.x PDF 解析器。
+
+使用 MineRU pipeline 后端解析 PDF 文件，输出 Content 列表。
+配置文件 (mineru.json) 随 package 分发，不依赖用户 home 目录。
+"""
+
 import os
-import subprocess
-import time
 import uuid
 from pathlib import Path
-from typing import Any
-
-import fitz  # pymupdf
 
 from .config import Content, ContentType
 from .log import Logger
-from .utils import cache_it, hash64, load_base64_image, safe_encode, time_it
+from .utils import cache_it, hash64, time_it
 
-# 图片 bbox 包含判断的容差（PDF 坐标单位）
-_BBOX_TOLERANCE = 5.0
+# MineRU 配置文件路径（随 package 分发）
+_MINERU_CONFIG_PATH = Path(__file__).parent / "resources" / "mineru.json"
 
 
-def _bbox_contains(outer: list[float], inner: list[float], tolerance: float = _BBOX_TOLERANCE) -> bool:  # noqa: E501
-    """判断 inner bbox 是否被 outer bbox 包含（含容差）。
+def _setup_mineru_env(model_source: str = "huggingface", device: str = "auto") -> None:
+    """在首次导入 MineRU 模块前配置运行时环境变量。
 
-    bbox 格式：[x0, y0, x1, y1]，PDF 坐标系（y 轴向上）。
+    - MINERU_TOOLS_CONFIG_JSON: 指向随 package 分发的 mineru.json，不写 ~/mineru.json
+    - MINERU_MODEL_SOURCE: 模型来源 (huggingface/modelscope/local)
+    - MINERU_DEVICE_MODE: 运行设备，auto 时不设置让 MineRU 自动检测
     """
-    return (
-        inner[0] >= outer[0] - tolerance
-        and inner[1] >= outer[1] - tolerance
-        and inner[2] <= outer[2] + tolerance
-        and inner[3] <= outer[3] + tolerance
-    )
+    os.environ["MINERU_TOOLS_CONFIG_JSON"] = str(_MINERU_CONFIG_PATH.resolve())
+    if "MINERU_MODEL_SOURCE" not in os.environ:
+        os.environ["MINERU_MODEL_SOURCE"] = model_source
+    if device != "auto" and "MINERU_DEVICE_MODE" not in os.environ:
+        os.environ["MINERU_DEVICE_MODE"] = device
 
 
-class OpenDataLoaderParser:
-    """PDF 解析器，通过 Docker 容器运行 OpenDataLoader。
+class MineRUParser:
+    """PDF 解析器，使用 MineRU 3.x pipeline 后端。
 
-    宿主机无需安装 Java，通过 docker exec 在容器内执行解析，
-    输出文件通过挂载目录映射回宿主机。
+    无需 Docker，直接调用 MineRU Python API 在本地解析 PDF。
+    配置文件随 package 分发，模型可从 HuggingFace 或 ModelScope 下载。
     """
 
     def __init__(
         self,
-        container_name: str = "opendataloader-api-server",
-        volume_host_dir: str = "",
-        hybrid_mode: str = "auto",
-        hybrid_pipeline: str = "docling-fast",
-        parse_timeout: int = 3600,
+        model_source: str = "huggingface",
+        device: str = "auto",
     ):
-        self.container_name = container_name
-        self.volume_host_dir = volume_host_dir
-        self.hybrid_mode = hybrid_mode
-        self.hybrid_pipeline = hybrid_pipeline
-        self.parse_timeout = parse_timeout
+        self.model_source = model_source
+        self.device = device
 
     def key_generator(self, file_path: str, **kwargs) -> str:
         file_bytes = b""
@@ -58,431 +53,159 @@ class OpenDataLoaderParser:
         except Exception as e:
             Logger.error(f"Read file exception: {e}")
             return uuid.uuid4().hex
-        return "odl_parser::file_content_hash::" + hash64(file_bytes)
+        return "mineru_parser::file_content_hash::" + hash64(file_bytes)
 
-    @time_it("pdf parser")
+    @time_it("mineru parser")
     @cache_it(key_generator=key_generator)
     def parse(self, file_path: str, asset_save_dir: str = "") -> list[Content]:
         """解析 PDF 文件，返回 Content 列表。
 
-        通过 docker exec 在容器内调用 opendataloader-pdf CLI，
-        读取 JSON 输出文件并转换为 Content 列表。
-        图片以 UUID 命名保存至 asset_save_dir，content_url 存储绝对路径。
+        使用 MineRU pipeline 后端解析，图片写入 asset_save_dir。
+        content_url 存储绝对路径，供 steps.py 生成 Obsidian wikilink。
         """
+        _setup_mineru_env(self.model_source, self.device)
+
+        from mineru.backend.pipeline.pipeline_analyze import doc_analyze_streaming
+        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make
+        from mineru.data.data_reader_writer import FileBasedDataWriter
+        from mineru.utils.enum_class import MakeMode
+
+        pdf_path = Path(file_path).resolve()
+        pdf_bytes = pdf_path.read_bytes()
+
         if asset_save_dir:
-            os.makedirs(asset_save_dir, exist_ok=True)
+            image_dir = str(Path(asset_save_dir).resolve())
+        else:
+            image_dir = str(pdf_path.parent / (pdf_path.stem + "_images"))
+        os.makedirs(image_dir, exist_ok=True)
 
-        pdf_filename = os.path.basename(file_path)
-        pdf_stem = Path(file_path).stem
+        image_writer = FileBasedDataWriter(image_dir)
 
-        # 如果 file_path 不在 volume_host_dir 下，或者 ODL 挂载路径不匹配，
-        # 则将文件拷贝到 volume_host_dir 下以便容器访问。
-        file_path_abs = os.path.abspath(file_path)
-        volume_host_dir_abs = os.path.abspath(self.volume_host_dir)
-        
-        target_pdf_path = os.path.join(volume_host_dir_abs, pdf_filename)
-        if not file_path_abs.startswith(volume_host_dir_abs):
-            Logger.warning(
-                f"File {file_path_abs} is outside of volume_host_dir "
-                f"{volume_host_dir_abs}. Copying to it..."
-            )
-            import shutil
+        _results: dict[int, dict] = {}
 
-            shutil.copy2(file_path_abs, target_pdf_path)
-        elif not os.path.exists(target_pdf_path):
-            # 即使在目录下，如果文件名不一致（软链接等情况），也确保目标路径存在
-            import shutil
+        def _on_doc_ready(doc_index, model_list, middle_json, ocr_enable):
+            _results[doc_index] = middle_json
 
-            shutil.copy2(file_path_abs, target_pdf_path)
-
-        self._ensure_container_running()
-
-        Logger.info(f"Parsing PDF via OpenDataLoader container: {self.container_name}")
-        try:
-            result = subprocess.run(
-                [
-                    "docker",
-                    "exec",
-                    self.container_name,
-                    "opendataloader-pdf",
-                    f"/data/{pdf_filename}",
-                    "--output-dir",
-                    "/data/output",
-                    "--format",
-                    "json",
-                    "--hybrid",
-                    self.hybrid_pipeline,
-                    "--hybrid-mode",
-                    self.hybrid_mode,
-                    "--hybrid-url",
-                    "http://localhost:5002",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=self.parse_timeout,  # 可配置超时保护，默认 3600秒（1小时）
-            )
-        except subprocess.TimeoutExpired as err:
-            raise RuntimeError(
-                f"OpenDataLoader parsing timed out after {self.parse_timeout} seconds. "
-                f"This may happen when processing PDFs with many formulas on CPU. "
-                f"Formula enrichment typically takes 30-100s per formula image on CPU. "
-                f"Consider increasing odl_parse_timeout or using GPU acceleration."
-            ) from err
-        
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"OpenDataLoader extraction failed"
-                f" (exit {result.returncode}): {result.stderr}"
-            )
-        Logger.info(f"OpenDataLoader stdout: {result.stdout[:300]}")
-
-        json_host_path = os.path.join(
-            self.volume_host_dir, "output", f"{pdf_stem}.json"
+        Logger.info(f"Starting MineRU pipeline parse: {pdf_path.name}")
+        doc_analyze_streaming(
+            pdf_bytes_list=[pdf_bytes],
+            image_writer_list=[image_writer],
+            lang_list=[None],
+            on_doc_ready=_on_doc_ready,
         )
-        Logger.info(f"Reading JSON result from: {json_host_path}")
-        with open(json_host_path, encoding="utf-8") as f:
-            doc = json.load(f)
 
-        elements: list[dict[str, Any]] = doc.get("kids", [])
-        output_dir = os.path.join(self.volume_host_dir, "output")
+        middle_json = _results.get(0)
+        if not middle_json:
+            Logger.error("MineRU pipeline returned no results")
+            return []
 
-        contents = self._process_elements(
-            elements=elements,
-            output_dir=output_dir,
-            asset_save_dir=asset_save_dir,
-            file_path=file_path,
+        content_list_raw = union_make(
+            middle_json["pdf_info"],
+            MakeMode.CONTENT_LIST,
+            img_buket_path=image_dir,
         )
-        self._stop_container()
+
+        contents = self._convert_to_contents(content_list_raw, file_path)
+        Logger.info(f"Parsed {len(contents)} content items from {pdf_path.name}")
         return contents
 
-    def _stop_container(self) -> None:
-        """解析完成后停止并删除 Docker 容器，释放资源。"""
-        Logger.info(f"Removing container '{self.container_name}' after parsing ...")
-        subprocess.run(
-            ["docker", "rm", "-f", self.container_name],
-            capture_output=True,
-            text=True,
-        )
-        Logger.info(f"Container '{self.container_name}' removed.")
-
-    def _ensure_container_running(self) -> None:
-        """确保 OpenDataLoader Docker 容器正在运行。
-
-        若 Docker 镜像不存在，则从包内 Dockerfile 本地构建；
-        若容器未运行，则删除已停止的同名容器并重新启动；
-        最后等待混合服务就绪。
-        """
-        # 检查容器是否正在运行
-        inspect = subprocess.run(
-            [
-                "docker",
-                "inspect",
-                "--format",
-                "{{.State.Running}}",
-                self.container_name,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        if inspect.returncode == 0 and inspect.stdout.strip() == "true":
-            return  # 容器已在运行
-
-        image_name = self.container_name  # 镜像名与容器名保持一致
-
-        # 检查 Docker 镜像是否存在
-        img_check = subprocess.run(
-            ["docker", "images", "-q", image_name],
-            capture_output=True,
-            text=True,
-        )
-        if not img_check.stdout.strip():
-            # 镜像不存在，从随 skill 一起分发的 Dockerfile 本地构建
-            dockerfile_dir = os.path.dirname(os.path.abspath(__file__))
-            Logger.info(
-                f"Docker image '{image_name}' not found. "
-                f"Building from {dockerfile_dir}/Dockerfile ..."
-            )
-            build = subprocess.run(
-                ["docker", "build", "-t", image_name, dockerfile_dir],
-            )
-            if build.returncode != 0:
-                raise RuntimeError(
-                    f"Docker build failed (exit {build.returncode}). "
-                    "Check that Docker is running and you have internet access."
-                )
-            Logger.info(f"Docker image '{image_name}' built successfully.")
-
-        # 删除已停止的同名容器（若有），避免名称冲突
-        subprocess.run(
-            ["docker", "rm", "-f", self.container_name],
-            capture_output=True,
-            text=True,
-        )
-
-        # 启动容器，将 volume_host_dir 挂载至 /data
-        # 同时挂载 HuggingFace 缓存目录，避免运行时下载模型
-        Logger.info(f"Starting container '{self.container_name}' ...")
-        hf_cache_host = os.path.expanduser("~/.cache/huggingface")
-        
-        # 优化 CPU 线程数：默认 docling 使用 4 线程，增加到 10 线程以加速 VLM 推理
-        # 可通过环境变量 ODL_OMP_THREADS 覆盖（避免占满所有核心影响系统响应）
-        omp_threads = os.getenv("ODL_OMP_THREADS", "10")
-        
-        run = subprocess.run(
-            [
-                "docker", "run", "-d",
-                "--name", self.container_name,
-                "-v", f"{self.volume_host_dir}:/data",
-                "-v", f"{hf_cache_host}:/root/.cache/huggingface",
-                "-e", f"OMP_NUM_THREADS={omp_threads}",
-                "-p", "5002:5002",
-                image_name,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=self.parse_timeout,
-        )
-        if run.returncode != 0:
-            raise RuntimeError(
-                f"Failed to start container '{self.container_name}' "
-                f"(exit {run.returncode}): {run.stderr}"
-            )
-
-        # 等待 hybrid API 服务就绪（服务启动需要一定时间）
-        Logger.info("Waiting for OpenDataLoader hybrid service to be ready (30s) ...")
-        time.sleep(30)
-        Logger.info("Container is ready.")
-
-    def _process_elements(
+    def _convert_to_contents(
         self,
-        elements: list[dict[str, Any]],
-        output_dir: str,
-        asset_save_dir: str,
+        content_list_raw: list[dict],
         file_path: str,
     ) -> list[Content]:
-        """将 OpenDataLoader JSON 元素列表转换为 Content 列表。
-
-        - 使用 bbox 包含判断跳过图片内部的 OCR 文字
-        - 图片以 UUID 命名复制至 asset_save_dir
-        - content_url 保存绝对路径
-        """
-        # 第一遍：收集每页所有图片的 bbox，用于后续过滤图片内文字
-        image_bboxes_by_page: dict[int, list[list[float]]] = {}
-        for elem in elements:
-            if elem.get("type") == "image":
-                page = elem.get("page number", 0)
-                bbox = elem.get("bounding box")
-                if bbox:
-                    image_bboxes_by_page.setdefault(page, []).append(bbox)
-
+        """将 MineRU CONTENT_LIST 格式转换为 paper_reading Content 列表。"""
         contents: list[Content] = []
-        for elem in elements:
-            elem_type = elem.get("type", "")
-            page = elem.get("page number", 0)
-            bbox = elem.get("bounding box")
-
-            if elem_type == "image":
-                source = elem.get("source", "")
-                if not source:
-                    continue
-                content = self._process_image(
-                    source=source,
-                    output_dir=output_dir,
-                    asset_save_dir=asset_save_dir,
-                    file_path=file_path,
-                    page_number=page,
-                    bbox=bbox,
-                )
-                if content:
-                    contents.append(content)
-
-            elif elem_type == "formula":
-                # 跳过位于图片 bbox 内的公式
-                if bbox and page in image_bboxes_by_page and any(
-                    _bbox_contains(img_bbox, bbox)
-                    for img_bbox in image_bboxes_by_page[page]
-                ):
-                    continue
-
-                latex = elem.get("content", "").strip()
-                if not latex:
-                    continue
-                contents.append(
-                    Content(
-                        content_type=ContentType.FORMULA,
-                        file_path=file_path,
-                        content=safe_encode(latex),
-                        extra_description="",
-                        content_url="",
-                    )
-                )
-
-            elif elem_type in ("paragraph", "heading", "list"):
-                # 跳过位于图片 bbox 内的文字（过滤图片中的 OCR 文字）
-                if bbox and page in image_bboxes_by_page and any(
-                    _bbox_contains(img_bbox, bbox)
-                    for img_bbox in image_bboxes_by_page[page]
-                ):
-                    Logger.info(
-                        f"Skipping in-image text on page {page}:"
-                        f" {elem.get('content', '')[:60]!r}"
-                    )
-                    continue
-
-                if elem_type == "list":
-                    text = self._list_to_text(elem)
-                else:
-                    text = elem.get("content", "").strip()
-                    if elem_type == "heading":
-                        level = max(1, int(elem.get("heading level", 2)))
-                        text = "#" * level + " " + text
-
-                if not text:
-                    continue
-                contents.append(
-                    Content(
-                        content_type=ContentType.TEXT,
-                        file_path=file_path,
-                        content=safe_encode(text),
-                        extra_description="",
-                        content_url="",
-                    )
-                )
-
-            elif elem_type == "table":
-                table_md = self._table_to_markdown(elem)
-                if table_md:
-                    contents.append(
-                        Content(
-                            content_type=ContentType.TABLE,
-                            file_path=file_path,
-                            content=safe_encode(table_md),
-                            extra_description="",
-                            content_url="",
-                        )
-                    )
-
+        for item in content_list_raw:
+            item_type = item.get("type", "")
+            converted = self._convert_item(item, item_type, file_path)
+            if converted is not None:
+                contents.append(converted)
         return contents
 
-    def _process_image(
-        self,
-        source: str,
-        output_dir: str,
-        asset_save_dir: str,
-        file_path: str,
-        page_number: int = 0,
-        bbox: list[float] | None = None,
-    ) -> Content | None:
-        """处理图片元素：优先用 pymupdf 从原始 PDF 高 DPI 光栅化对应区域，
-        若失败则回退至直接复制 OpenDataLoader 提取的图片。"""
-        src_path = os.path.join(output_dir, source)
-        if not os.path.isfile(src_path):
-            Logger.warning(f"Image file not found: {src_path}")
-            return None
-
-        # 尝试用 pymupdf 以高 DPI 光栅化 PDF 中的图片区域
-        img_bytes: bytes | None = None
-        if bbox and page_number > 0:
-            img_bytes = self._render_image_from_pdf(
-                pdf_path=file_path,
-                page_number=page_number,
-                bbox=bbox,
-                dpi=300,
+    def _convert_item(self, item: dict, item_type: str, file_path: str) -> Content | None:  # noqa: E501
+        """将单个 MineRU content list item 转换为 Content 对象。"""
+        if item_type == "text":
+            text = item.get("text", "").strip()
+            if not text:
+                return None
+            level = item.get("text_level")
+            if level:
+                text = "#" * level + " " + text
+            return Content(
+                content_type=ContentType.TEXT,
+                file_path=file_path,
+                content=text,
+                extra_description="",
+                content_url="",
             )
 
-        if img_bytes is None:
-            # 回退：直接读取 OpenDataLoader 提取的图片
-            with open(src_path, "rb") as _f:
-                img_bytes = _f.read()
-            ext = Path(source).suffix
-        else:
-            ext = ".png"
-
-        # 基于图片内容生成确定性文件名，相同内容始终得到相同文件名
-        content_hash = hash64(img_bytes)
-        new_name = content_hash + ext
-        dst_path = os.path.join(asset_save_dir, new_name)
-        with open(dst_path, "wb") as _f:
-            _f.write(img_bytes)
-        Logger.info(f"Saved image with content-hash name: {dst_path}")
-
-        return Content(
-            content_type=ContentType.IMAGE,
-            file_path=file_path,
-            content=load_base64_image(dst_path),
-            extra_description="",
-            # 始终用绝对路径，供 steps 计算相对路径
-            content_url=os.path.abspath(dst_path),
-        )
-
-    def _render_image_from_pdf(
-        self,
-        pdf_path: str,
-        page_number: int,
-        bbox: list[float],
-        dpi: int = 300,
-    ) -> bytes | None:
-        """使用 pymupdf 从原始 PDF 按 bbox 裁剪并高 DPI 光栅化，返回 PNG bytes。
-
-        OpenDataLoader bbox 格式：[x0, y0, x1, y1]，PDF 标准坐标（原点左下，y 向上）。
-        fitz 使用屏幕坐标（原点左上，y 向下），需要做 y 轴翻转：
-          fitz_y = page_height - pdf_y
-        """
-        try:
-            doc = fitz.open(pdf_path)
-            # OpenDataLoader 页码从 1 开始
-            page = doc[page_number - 1]
-            page_height = page.rect.height
-
-            # 将 PDF 标准坐标转换为 fitz 屏幕坐标
-            x0, y0_pdf, x1, y1_pdf = bbox
-            fitz_y0 = page_height - y1_pdf  # PDF y1（上边）→ fitz 顶部
-            fitz_y1 = page_height - y0_pdf  # PDF y0（下边）→ fitz 底部
-
-            clip = fitz.Rect(x0, fitz_y0, x1, fitz_y1)
-            mat = fitz.Matrix(dpi / 72, dpi / 72)
-            pix = page.get_pixmap(matrix=mat, clip=clip)
-            png_bytes: bytes = pix.tobytes("png")
-            doc.close()
-            Logger.info(
-                f"Rendered page {page_number} bbox {bbox} at {dpi} DPI:"
-                f" {pix.width}x{pix.height}"
+        elif item_type == "list":
+            items = item.get("list_items", [])
+            text = "\n".join(f"- {t}" for t in items if t and t.strip())
+            if not text:
+                return None
+            return Content(
+                content_type=ContentType.TEXT,
+                file_path=file_path,
+                content=text,
+                extra_description="",
+                content_url="",
             )
-            return png_bytes
-        except Exception as e:
-            Logger.warning(f"Failed to render image from PDF: {e}")
+
+        elif item_type == "equation":
+            latex = item.get("text", "").strip()
+            # MineRU 的 text 字段有时已包含 $$ 分隔符，需去除避免 steps.py 双重包裹
+            if latex.startswith("$$"):
+                latex = latex[2:].lstrip()
+            if latex.endswith("$$"):
+                latex = latex[:-2].rstrip()
+            img_path = item.get("img_path", "")
+            img_exists = bool(img_path) and os.path.isfile(img_path)
+            if latex and item.get("text_format") == "latex":
+                return Content(
+                    content_type=ContentType.FORMULA,
+                    file_path=file_path,
+                    content=latex,
+                    extra_description="",
+                    content_url=os.path.abspath(img_path) if img_exists else "",
+                )
+            elif img_exists:
+                return Content(
+                    content_type=ContentType.IMAGE,
+                    file_path=file_path,
+                    content="",
+                    extra_description="",
+                    content_url=os.path.abspath(img_path),
+                )
             return None
 
-    def _list_to_text(self, list_elem: dict[str, Any]) -> str:
-        """将 list 元素转换为 Markdown 列表文本。"""
-        items = list_elem.get("list items", [])
-        lines = []
-        for item in items:
-            text = item.get("content", "").strip()
-            if text:
-                lines.append(f"- {text}")
-        return "\n".join(lines)
+        elif item_type == "image":
+            img_path = item.get("img_path", "")
+            if not img_path or not os.path.isfile(img_path):
+                return None
+            captions = item.get("image_caption", [])
+            description = " ".join(c for c in captions if c).strip()
+            return Content(
+                content_type=ContentType.IMAGE,
+                file_path=file_path,
+                content="",
+                extra_description=description,
+                content_url=os.path.abspath(img_path),
+            )
 
-    def _table_to_markdown(self, table_elem: dict[str, Any]) -> str:
-        """将 table 元素转换为 Markdown 表格文本。"""
-        rows = table_elem.get("rows", [])
-        if not rows:
-            return ""
+        elif item_type == "table":
+            img_path = item.get("img_path", "")
+            table_html = item.get("table_body", "")
+            captions = item.get("table_caption", [])
+            description = " ".join(c for c in captions if c).strip()
+            img_exists = bool(img_path) and os.path.isfile(img_path)
+            return Content(
+                content_type=ContentType.TABLE,
+                file_path=file_path,
+                content=table_html,
+                extra_description=description,
+                content_url=os.path.abspath(img_path) if img_exists else "",
+            )
 
-        md_rows = []
-        for row in rows:
-            cells = row.get("cells", [])
-            cell_texts = []
-            for cell in cells:
-                kids = cell.get("kids", [])
-                text = " ".join(k.get("content", "") for k in kids if k.get("content"))
-                cell_texts.append(text.replace("|", "\\|"))
-            md_rows.append("| " + " | ".join(cell_texts) + " |")
-
-        if not md_rows:
-            return ""
-
-        # 在标题行后插入分隔行
-        num_cols = len(rows[0].get("cells", []))
-        separator = "| " + " | ".join(["---"] * num_cols) + " |"
-        return "\n".join([md_rows[0], separator] + md_rows[1:])
+        return None

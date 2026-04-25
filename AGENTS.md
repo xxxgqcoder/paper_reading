@@ -28,7 +28,7 @@ uv run paper-reading --config config.json
 # 指定步骤
 uv run paper-reading --file_path input.pdf \
   --final_md_file_save_dir output/ \
-  --steps summary,translate,original
+  --steps summary,original
 ```
 
 ### 页面提取
@@ -62,11 +62,10 @@ uv run paper-reading get-schema
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `HF_HOME` | HuggingFace 缓存目录 | `~/.cache/huggingface` |
-| `ODL_OMP_THREADS` | OpenDataLoader CPU 线程数 | `10` |
-| `ODL_PARSE_TIMEOUT` | PDF 解析超时秒数 | `3600` (1小时) |
-| `ODL_VOLUME_HOST_DIR` | OpenDataLoader 数据卷挂载目录 | - |
 | `PR_LLM_ENDPOINT` | LLM API 端点 | - |
-| `PR_LLM_API_KEY` | LLM API 密钥 | - |
+| `PR_LLM_API_KEY` | LLM API 密阥 | - |
+| `MINERU_MODEL_SOURCE` | 模型下载源 `huggingface`/`modelscope` | `modelscope` |
+| `MINERU_DEVICE_MODE` | MineRU 推理设备，空时自动检测 | 自动检测 |
 
 ## 完整工作流示例
 
@@ -75,15 +74,15 @@ uv run paper-reading get-schema
 uv run paper-reading download-models
 
 # 2. 配置环境变量（可选）
-export ODL_OMP_THREADS=10          # CPU 线程优化
 export PR_LLM_ENDPOINT="https://..."
 export PR_LLM_API_KEY="sk-..."
+export MINERU_MODEL_SOURCE=modelscope  # 默认 modelscope，国内网络推荐
 
-# 3. 处理学术论文（启用公式识别）
+# 3. 处理学术论文（device 自动检测，图片自动保到 PDF 同级目录）
 uv run paper-reading \
   --file_path paper.pdf \
   --final_md_file_save_dir output/ \
-  --steps summary,translate,original \
+  --steps summary,original \
   --src_lang en \
   --target_lang zh
 
