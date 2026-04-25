@@ -28,7 +28,7 @@ uv run paper-reading --config config.json
 # 指定步骤
 uv run paper-reading --file_path input.pdf \
   --final_md_file_save_dir output/ \
-  --steps summary,translate,original
+  --steps summary,original
 ```
 
 ### 页面提取
@@ -83,7 +83,7 @@ export PR_LLM_API_KEY="sk-..."
 uv run paper-reading \
   --file_path paper.pdf \
   --final_md_file_save_dir output/ \
-  --steps summary,translate,original \
+  --steps summary,original \
   --src_lang en \
   --target_lang zh
 

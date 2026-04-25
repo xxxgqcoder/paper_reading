@@ -46,125 +46,60 @@ if not _SKILLS_DIR.is_dir():
 _GLOBAL_SKILLS_DIR = Path.home() / ".agents" / "skills"
 
 
-def _download_models(model_name: str = "all") -> None:
-    """下载 OpenDataLoader 所需的模型到本地缓存。
+def _download_models(model_name: str = "all", source: str = "huggingface") -> None:
+    """下载 MineRU pipeline 所需的模型到本地缓存。
 
     Args:
-        model_name: 要下载的模型名称，默认 "all" 下载所有模型
+        model_name: 保留参数，当前只支持 "all"（pipeline 模型集）
+        source: 模型来源，"huggingface" 或 "modelscope"
     """
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
+    if source not in ("huggingface", "modelscope"):
         print(
             json.dumps(
-                {
-                    "status": "error",
-                    "error": (
-                        "huggingface_hub is not installed. "
-                        "Please run: uv add huggingface-hub"
-                    ),
-                },
+                {"status": "error", "error": f"Unknown source: {source}. Use 'huggingface' or 'modelscope'"},
                 ensure_ascii=False,
             )
         )
         sys.exit(1)
 
-    # 模型配置
-    models = {
-        "code-formula": {
-            "repo_id": "docling-project/CodeFormulaV2",
-            "description": (
-                "Formula and code extraction model "
-                "(for PDF formula enrichment)"
-            ),
-            "size": "~5GB",
-        }
-    }
-
-    # 确定要下载的模型
-    if model_name == "all":
-        models_to_download = models
-    elif model_name in models:
-        models_to_download = {model_name: models[model_name]}
-    else:
-        print(
-            json.dumps(
-                {
-                    "status": "error",
-                    "error": (
-                        f"Unknown model: {model_name}. "
-                        f"Available: {', '.join(models.keys())}, all"
-                    ),
-                },
-                ensure_ascii=False,
-            )
-        )
-        sys.exit(1)
-
-    # 使用环境变量或默认值
-    cache_dir = os.environ.get("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
-
-    results = []
-    for name, info in models_to_download.items():
-        repo_id = info["repo_id"]
-        print(
-            json.dumps(
-                {
-                    "status": "downloading",
-                    "model": name,
-                    "repo_id": repo_id,
-                    "description": info["description"],
-                    "size": info["size"],
-                    "cache_dir": cache_dir,
-                },
-                ensure_ascii=False,
-            )
-        )
-
-        try:
-            local_path = snapshot_download(
-                repo_id=repo_id,
-                cache_dir=cache_dir,
-                resume_download=True,  # 支持断点续传
-                local_files_only=False,
-            )
-
-            results.append(
-                {
-                    "model": name,
-                    "repo_id": repo_id,
-                    "status": "success",
-                    "path": local_path,
-                }
-            )
-
-        except Exception as e:
-            results.append(
-                {
-                    "model": name,
-                    "repo_id": repo_id,
-                    "status": "error",
-                    "error": str(e),
-                }
-            )
-
-    # 输出最终结果
-    success_count = sum(1 for r in results if r["status"] == "success")
     print(
         json.dumps(
-            {
-                "status": "completed" if success_count == len(results) else "partial",
-                "downloaded": success_count,
-                "total": len(results),
-                "results": results,
-                "cache_dir": cache_dir,
-            },
+            {"status": "starting", "source": source, "model": model_name},
             ensure_ascii=False,
-            indent=2,
         )
     )
 
-    if success_count < len(results):
+    # 设置 MineRU 环境（必须在导入 mineru 模块前完成）
+    from paper_reading.pdf_parser import _setup_mineru_env
+    _setup_mineru_env(model_source=source)
+
+    try:
+        from mineru.cli.models_download import download_pipeline_models
+    except ImportError as e:
+        print(
+            json.dumps(
+                {"status": "error", "error": f"mineru is not installed: {e}"},
+                ensure_ascii=False,
+            )
+        )
+        sys.exit(1)
+
+    try:
+        download_pipeline_models()
+        print(
+            json.dumps(
+                {"status": "success", "source": source, "model": model_name},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    except Exception as e:
+        print(
+            json.dumps(
+                {"status": "error", "source": source, "error": str(e)},
+                ensure_ascii=False,
+            )
+        )
         sys.exit(1)
 
 
@@ -347,47 +282,16 @@ def main() -> None:
         help="LLM API key (default: env PR_LLM_API_KEY)",
     )
     parser.add_argument(
-        "--odl_container_name",
-        default="opendataloader-api-server",
-        help=(
-            "OpenDataLoader Docker container name "
-            "(default: opendataloader-api-server)"
-        ),
+        "--mineru_model_source",
+        default="huggingface",
+        choices=["huggingface", "modelscope"],
+        help="MineRU model source (default: huggingface)",
     )
     parser.add_argument(
-        "--odl_volume_host_dir",
-        default=os.environ.get("ODL_VOLUME_HOST_DIR", ""),
-        help=(
-            "Host directory mounted as /data in the OpenDataLoader container "
-            "(default: env ODL_VOLUME_HOST_DIR)"
-        ),
-    )
-    parser.add_argument(
-        "--odl_hybrid_mode",
-        default="full",
-        choices=["auto", "full"],
-        help=(
-            "OpenDataLoader hybrid mode: full (default, highest accuracy, "
-            "high memory) or auto"
-        ),
-    )
-    parser.add_argument(
-        "--odl_hybrid_pipeline",
-        default="docling-fast",
-        choices=["docling-fast", "docling"],
-        help=(
-            "OpenDataLoader hybrid pipeline: docling-fast (default, faster) "
-            "or docling (higher accuracy for formulas/tables)"
-        ),
-    )
-    parser.add_argument(
-        "--odl_parse_timeout",
-        type=int,
-        default=int(os.environ.get("ODL_PARSE_TIMEOUT", "3600")),
-        help=(
-            "OpenDataLoader parse timeout in seconds "
-            "(default: env ODL_PARSE_TIMEOUT or 3600)"
-        ),
+        "--mineru_device",
+        default="auto",
+        choices=["auto", "mps", "cuda", "cpu"],
+        help="MineRU inference device (default: auto)",
     )
 
     # --- extract-pages 参数 ---
@@ -410,10 +314,13 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default="all",
-        help=(
-            "model name to download: code-formula, all "
-            "(default: all, for download-models)"
-        ),
+        help="model to download (default: all, for download-models)",
+    )
+    parser.add_argument(
+        "--source",
+        default="huggingface",
+        choices=["hf", "modelscope", "huggingface"],
+        help="model download source: huggingface/hf or modelscope (for download-models)",
     )
 
     args = parser.parse_args()
@@ -431,7 +338,9 @@ def main() -> None:
         return
 
     if args.command_arg == "download-models":
-        _download_models(model_name=args.model)
+        # 将 hf 别名解析为 huggingface
+        source = "huggingface" if args.source == "hf" else args.source
+        _download_models(model_name=args.model, source=source)
         return
 
     if args.command_arg == "install-skills":
@@ -513,11 +422,8 @@ def main() -> None:
                 max_context_token_num=args.max_context_token_num,
                 asset_save_dir=args.asset_save_dir,
                 cache_data_dir=args.cache_data_dir,
-                odl_container_name=args.odl_container_name,
-                odl_volume_host_dir=args.odl_volume_host_dir,
-                odl_hybrid_mode=args.odl_hybrid_mode,
-                odl_hybrid_pipeline=args.odl_hybrid_pipeline,
-                odl_parse_timeout=args.odl_parse_timeout,
+                mineru_model_source=args.mineru_model_source,
+                mineru_device=args.mineru_device,
             )
     except Exception as e:
         print(

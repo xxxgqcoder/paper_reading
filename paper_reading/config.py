@@ -117,7 +117,7 @@ class ProcessParams(BaseModel):
     output_dir: str = Field(..., description="Markdown 输出文件的保存目录")
     
     steps: List[str] = Field(
-        default_factory=lambda: ["summary", "translate", "original"],
+        default_factory=lambda: ["summary", "original"],
         description="处理步骤列表，可选值: summary, translate, original"
     )
     src_lang: str = Field(default="en", description="源文档语言代码，默认 'en'")
@@ -151,26 +151,14 @@ class ProcessParams(BaseModel):
         description="磁盘缓存目录"
     )
 
-    # OpenDataLoader Docker 配置
-    odl_container_name: str = Field(
-        default="opendataloader-api-server",
-        description="OpenDataLoader Docker 容器名称",
+    # MineRU pipeline 配置
+    mineru_model_source: str = Field(
+        default="huggingface",
+        description="模型下载源：huggingface / modelscope / local",
     )
-    odl_volume_host_dir: str = Field(
-        default="",
-        description="挂载到容器 /data 的宿主机目录绝对路径（需与 docker run -v 一致）",
-    )
-    odl_hybrid_mode: str = Field(
-        default="full",
-        description="Hybrid 模式：full（全页 AI，最高精度）或 auto（自动分流，内存占用小）",
-    )
-    odl_hybrid_pipeline: str = Field(
-        default="docling-fast",
-        description="Hybrid 管线：docling-fast（轻量，速度快）或 docling（完整模型，公式/表格精度更高）",
-    )
-    odl_parse_timeout: int = Field(
-        default=3600,
-        description="OpenDataLoader PDF 解析超时时间（秒）。CPU 模式下 formula enrichment 很慢，大约每个公式30-100秒，建议设置为 3600（1小时）",
+    mineru_device: str = Field(
+        default="auto",
+        description="运行设备：auto（自动检测）/ mps / cuda / cpu",
     )
 
     # prompt 模板
@@ -200,8 +188,6 @@ class ProcessParams(BaseModel):
             self.output_dir = _expand_path(self.output_dir)
         if self.file_path:
             self.file_path = _expand_path(self.file_path)
-        if self.odl_volume_host_dir:
-            self.odl_volume_host_dir = _expand_path(self.odl_volume_host_dir)
             
         return self
 

@@ -8,10 +8,10 @@ dependencies = [
     "StrEnum",
     "diskcache",
     "huggingface-hub>=0.20.0",
+    "mineru[pipeline]>=3.1.4",
+    "modelscope>=1.36.2",
     "openai>=1.109.1",
     "pydantic>=2.0.0",
-    "pymupdf>=1.27.2.2",
-    "pypdf",
     "tiktoken",
     "xxhash",
 ]
@@ -37,6 +37,7 @@ packages = ["paper_reading"]
 [tool.hatch.build.targets.wheel.force-include]
 ".agents/skills/digest-to-md/SKILL.md" = "paper_reading/_skills/digest-to-md/SKILL.md"
 ".agents/skills/extract-pages/SKILL.md" = "paper_reading/_skills/extract-pages/SKILL.md"
+"paper_reading/resources/mineru.json" = "paper_reading/resources/mineru.json"
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.

@@ -1,0 +1,15 @@
+{
+    "latex-delimiter-config": {
+        "display": {
+            "left": "$$",
+            "right": "$$"
+        },
+        "inline": {
+            "left": "$",
+            "right": "$"
+        }
+    },
+    "bucket_info": {
+        "[default]": [null, null, null]
+    }
+}
