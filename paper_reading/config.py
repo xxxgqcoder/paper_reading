@@ -7,6 +7,22 @@ from pydantic import BaseModel, Field, model_validator
 from strenum import StrEnum
 
 
+def _detect_device() -> str:
+    """根据当前环境自动检测最优推理设备。
+
+    优先级: MPS (Apple Silicon) > CUDA > auto
+    """
+    try:
+        import torch
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+    except Exception:
+        pass
+    return "auto"
+
+
 class Step(str, Enum):
     SUMMARY = "summary"
     TRANSLATE = "translate"
@@ -143,8 +159,8 @@ class ProcessParams(BaseModel):
 
     # 路径
     asset_save_dir: str = Field(
-        default="attachments", 
-        description="解析后的图片等资源保存目录"
+        default="",
+        description="解析后的图片等资源保存目录，为空时自动使用 PDF 同级的 {stem}_images 目录"
     )
     cache_data_dir: str = Field(
         default="~/.cache/llm_cache", 
@@ -153,12 +169,12 @@ class ProcessParams(BaseModel):
 
     # MineRU pipeline 配置
     mineru_model_source: str = Field(
-        default="huggingface",
+        default="modelscope",
         description="模型下载源：huggingface / modelscope / local",
     )
     mineru_device: str = Field(
-        default="auto",
-        description="运行设备：auto（自动检测）/ mps / cuda / cpu",
+        default="",
+        description="运行设备：留空则根据环境自动检测（mps/cuda/cpu），也可显式指定",
     )
 
     # prompt 模板
@@ -178,6 +194,10 @@ class ProcessParams(BaseModel):
             self.llm_endpoint = os.environ.get("PR_LLM_ENDPOINT", "")
         if not self.llm_api_key:
             self.llm_api_key = os.environ.get("PR_LLM_API_KEY", "")
+
+        # 自动检测推理设备
+        if not self.mineru_device:
+            self.mineru_device = _detect_device()
             
         # 路径展开
         if self.asset_save_dir:

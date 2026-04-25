@@ -263,8 +263,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--asset_save_dir",
-        default="attachments",
-        help="directory to save parsed assets",
+        default="",
+        help="directory to save parsed assets (default: auto, {pdf_stem}_images next to PDF)",
     )
     parser.add_argument(
         "--cache_data_dir",
@@ -283,15 +283,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--mineru_model_source",
-        default="huggingface",
+        default="modelscope",
         choices=["huggingface", "modelscope"],
-        help="MineRU model source (default: huggingface)",
+        help="MineRU model source (default: modelscope)",
     )
     parser.add_argument(
         "--mineru_device",
-        default="auto",
-        choices=["auto", "mps", "cuda", "cpu"],
-        help="MineRU inference device (default: auto)",
+        default="",
+        choices=["", "auto", "mps", "cuda", "cpu"],
+        help="MineRU inference device (default: auto-detect from environment)",
     )
 
     # --- extract-pages 参数 ---

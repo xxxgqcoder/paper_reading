@@ -52,8 +52,8 @@ paper-reading install-skills
 |---|---|---|---|---|
 | `file_path` | `str` | 是 | — | 输入 PDF 文件的绝对路径 |
 | `output_dir` | `str` | 是 | — | 输出 Markdown 文件的目录路径 |
-| `mineru_model_source` | `str` | 否 | `"huggingface"` | MineRU 模型来源：`huggingface` / `modelscope` / `local` |
-| `mineru_device` | `str` | 否 | `"auto"` | 推理设备：`auto` / `mps` / `cuda` / `cpu` |
+| `mineru_model_source` | `str` | 否 | `"modelscope"` | MineRU 模型来源：`huggingface` / `modelscope` / `local` |
+| `mineru_device` | `str` | 否 | 自动检测（MPS > CUDA > auto） | 推理设备：`mps` / `cuda` / `cpu` / `auto` |
 | `steps` | `list[str]` | 否 | `["summary", "original"]` | 执行的步骤列表 |
 | `src_lang` | `str` | 否 | `"en"` | 源语言代码 |
 | `target_lang` | `str` | 否 | `"zh"` | 目标语言代码 |
@@ -63,7 +63,7 @@ paper-reading install-skills
 | `vision_model_name` | `str` | 否 | `"qwen/qwen3.5-flash-02-23"` | 视觉模型名称 |
 | `gen_conf` | `dict` | 否 | `{temperature: 0.7, top_p: 0.3, ...}` | 生成参数 |
 | `max_context_token_num` | `int` | 否 | `120000` | 摘要最大输入 token 数 |
-| `asset_save_dir` | `str` | 否 | `"attachments"` | 解析资源保存目录 |
+| `asset_save_dir` | `str` | 否 | `""` (自动：PDF 同级 `{stem}_images`) | 解析资源保存目录 |
 | `cache_data_dir` | `str` | 否 | `"~/.cache/llm_cache"` | 磁盘缓存目录 |
 
 ## 输出格式
@@ -92,7 +92,8 @@ params = ProcessParams(
     steps=["summary", "original"],  # 默认步骤：摘要 + 原文
     src_lang="en",
     target_lang="zh",
-    mineru_device="mps",  # Apple Silicon
+    # mineru_device 省略时自动检测 mps/cuda/auto
+    # asset_save_dir 省略时自动使用 PDF 同级的 {stem}_images 目录
 )
 result = asyncio.run(process(params))
 print(result.output_file)
@@ -104,11 +105,12 @@ print(result.output_file)
 paper-reading \
     --file_path /path/to/paper.pdf \
     --final_md_file_save_dir /path/to/output \
-    --mineru_device mps \
     --steps summary,original \
     --src_lang en \
     --target_lang zh \
     --chat_model_name qwen/qwen3.5-flash-02-23 \
     --llm_endpoint http://127.0.0.1:11434
+# --mineru_device mps|cuda|cpu  # 省略时自动检测环境
+# --asset_save_dir /path/to/imgs  # 省略时使用 PDF 同级的 {stem}_images 目录
 ```
 
