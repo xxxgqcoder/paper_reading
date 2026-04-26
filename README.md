@@ -34,10 +34,10 @@ MineRU requires local model weights. Download them before first use to avoid run
 
 ```sh
 # Download all required models (recommended)
-uv run paper-reading download-models
+paper-reading download-models
 
 # Use ModelScope mirror (recommended for users in China)
-uv run paper-reading download-models --source modelscope
+paper-reading download-models --source modelscope
 ```
 
 ### 3. Configure LLM
@@ -59,7 +59,7 @@ export PR_LLM_API_KEY="sk-xxx"
 ### 4. Process a PDF
 
 ```sh
-uv run paper-reading \
+paper-reading \
     --file_path /path/to/paper.pdf \
     --final_md_file_save_dir /path/to/output/ \
     --steps summary,translate,original \
@@ -72,7 +72,7 @@ uv run paper-reading \
 ### Process PDF (default command)
 
 ```sh
-uv run paper-reading \
+paper-reading \
     --file_path /path/to/paper.pdf \
     --final_md_file_save_dir /path/to/output/ \
     --src_lang en \
@@ -102,13 +102,13 @@ uv run paper-reading \
 Use a JSON config file instead of individual flags:
 
 ```sh
-uv run paper-reading --config config.json
+paper-reading --config config.json
 ```
 
 Print the full config schema:
 
 ```sh
-uv run paper-reading get-schema
+paper-reading get-schema
 ```
 
 ### Extract PDF Pages
