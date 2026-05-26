@@ -59,11 +59,11 @@ paper-reading install-skills
 | `target_lang` | `str` | 否 | `"zh"` | 目标语言代码 |
 | `llm_endpoint` | `str` | 否 | env `PR_LLM_ENDPOINT` | LLM API 地址 |
 | `llm_api_key` | `str` | 否 | env `PR_LLM_API_KEY` | API Key |
-| `chat_model_name` | `str` | 否 | `"qwen/qwen3.5-flash-02-23"` | 文本模型名称 |
-| `vision_model_name` | `str` | 否 | `"qwen/qwen3.5-flash-02-23"` | 视觉模型名称 |
+| `chat_model_name` | `str` | 否 | `"Qwen/Qwen3.6-35B-A3B"` | 文本模型名称 |
+| `vision_model_name` | `str` | 否 | `"Qwen/Qwen3-VL-32B-Instruct"` | 视觉模型名称 |
 | `gen_conf` | `dict` | 否 | `{temperature: 0.7, top_p: 0.3, ...}` | 生成参数 |
 | `max_context_token_num` | `int` | 否 | `120000` | 摘要最大输入 token 数 |
-| `asset_save_dir` | `str` | 否 | `""` (自动：PDF 同级 `{stem}_images`) | 解析资源保存目录 |
+| `asset_save_dir` | `str` | 否 | `"~/aDrive/obsidian/attachments"` | 解析资源保存目录 |
 | `cache_data_dir` | `str` | 否 | `"~/.cache/llm_cache"` | 磁盘缓存目录 |
 
 ## 输出格式
@@ -93,7 +93,7 @@ params = ProcessParams(
     src_lang="en",
     target_lang="zh",
     # mineru_device 省略时自动检测 mps/cuda/auto
-    # asset_save_dir 省略时自动使用 PDF 同级的 {stem}_images 目录
+    # asset_save_dir 省略时默认使用 ~/aDrive/obsidian/attachments
 )
 result = asyncio.run(process(params))
 print(result.output_file)
@@ -108,9 +108,9 @@ paper-reading \
     --steps summary,original \
     --src_lang en \
     --target_lang zh \
-    --chat_model_name qwen/qwen3.5-flash-02-23 \
+    --chat_model_name Qwen/Qwen3.6-35B-A3B \
     --llm_endpoint http://127.0.0.1:11434
 # --mineru_device mps|cuda|cpu  # 省略时自动检测环境
-# --asset_save_dir /path/to/imgs  # 省略时使用 PDF 同级的 {stem}_images 目录
+# --asset_save_dir /path/to/imgs  # 省略时默认使用 ~/aDrive/obsidian/attachments
 ```
 
