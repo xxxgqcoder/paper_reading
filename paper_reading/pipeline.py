@@ -95,7 +95,10 @@ async def process(params: ProcessParams) -> ProcessResult:
         llm_endpoint=params.llm_endpoint,
         llm_api_key=params.llm_api_key,
     )
-    with open(md_file_path, "w") as md_writer:
+    # errors="replace": MineRU 从部分 PDF 抽取的文本可能含非法 surrogate 码点，
+    # 严格 UTF-8 编码会在写盘时抛 "surrogates not allowed" 并中断输出，
+    # 用替换策略容错，保证整篇 Markdown 写完。
+    with open(md_file_path, "w", encoding="utf-8", errors="replace") as md_writer:
         ctx.md_writer = md_writer
         md_writer.write(f"{name_without_suff}" + line_breaker)
 

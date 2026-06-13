@@ -1,6 +1,6 @@
 [project]
 name = "paper-reading"
-version = "0.1.0"
+version = "0.1.1"
 description = "A PDF processing pipeline for academic papers with summarization and translation"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,6 +12,7 @@ dependencies = [
     "modelscope>=1.36.2",
     "openai>=1.109.1",
     "pydantic>=2.0.0",
+    "six",
     "tiktoken",
     "xxhash",
 ]

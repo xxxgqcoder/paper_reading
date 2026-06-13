@@ -1484,7 +1484,7 @@ wheels = [
 
 [[package]]
 name = "paper-reading"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "diskcache" },
@@ -1493,6 +1493,7 @@ dependencies = [
     { name = "modelscope" },
     { name = "openai" },
     { name = "pydantic" },
+    { name = "six" },
     { name = "strenum" },
     { name = "tiktoken" },
     { name = "xxhash" },
@@ -1512,6 +1513,7 @@ requires-dist = [
     { name = "modelscope", specifier = ">=1.36.2" },
     { name = "openai", specifier = ">=1.109.1" },
     { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "six" },
     { name = "strenum" },
     { name = "tiktoken" },
     { name = "xxhash" },
