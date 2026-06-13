@@ -5,6 +5,7 @@
 """
 
 import os
+import shutil
 import uuid
 from pathlib import Path
 
@@ -57,11 +58,15 @@ class MineRUParser:
 
     @time_it("mineru parser")
     @cache_it(key_generator=key_generator)
-    def parse(self, file_path: str, asset_save_dir: str = "") -> list[Content]:
-        """解析 PDF 文件，返回 Content 列表。
+    def _parse_cached(self, file_path: str) -> list[Content]:
+        """运行 MineRU 解析 PDF，返回 Content 列表（按 PDF 内容缓存）。
 
-        使用 MineRU pipeline 后端解析，图片写入 asset_save_dir。
-        content_url 存储绝对路径，供 steps.py 生成 Obsidian wikilink。
+        图片始终写入 PDF 同级的 ``<stem>_images`` 目录——该目录按内容寻址、
+        稳定可复用，充当图片的持久源；content_url 记录其中图片的绝对路径。
+
+        本方法只负责「纯解析」，不接受 asset_save_dir。把图片落地到指定资源
+        目录是带副作用的操作，由 parse() 负责并保证每次都执行，否则缓存命中时
+        副作用会被一并跳过，导致「命中缓存即丢图」。
         """
         _setup_mineru_env(self.model_source, self.device)
 
@@ -73,10 +78,7 @@ class MineRUParser:
         pdf_path = Path(file_path).resolve()
         pdf_bytes = pdf_path.read_bytes()
 
-        if asset_save_dir:
-            image_dir = str(Path(asset_save_dir).resolve())
-        else:
-            image_dir = str(pdf_path.parent / (pdf_path.stem + "_images"))
+        image_dir = str(pdf_path.parent / (pdf_path.stem + "_images"))
         os.makedirs(image_dir, exist_ok=True)
 
         image_writer = FileBasedDataWriter(image_dir)
@@ -108,6 +110,46 @@ class MineRUParser:
         contents = self._convert_to_contents(content_list_raw, file_path)
         Logger.info(f"Parsed {len(contents)} content items from {pdf_path.name}")
         return contents
+
+    def parse(self, file_path: str, asset_save_dir: str = "") -> list[Content]:
+        """解析 PDF 文件，返回 Content 列表。
+
+        MineRU 解析（重计算）按 PDF 内容缓存；把图片落地到 asset_save_dir 的
+        副作用每次都会执行，因此即便解析命中缓存，图片仍会同步到目标目录，
+        steps.py 生成的 Obsidian wikilink 不会指向缺失文件。
+        """
+        contents = self._parse_cached(file_path)
+        if asset_save_dir:
+            self._materialize_assets(contents, asset_save_dir)
+        return contents
+
+    @staticmethod
+    def _materialize_assets(contents: list[Content], asset_save_dir: str) -> None:
+        """把 contents 引用的图片复制到 asset_save_dir，并改写 content_url 指向它。
+
+        幂等：目标已存在则跳过复制。该操作与解析缓存解耦、每次调用都执行，
+        确保图片落到资源目录（如 Obsidian attachments），wikilink 才能渲染。
+        源文件缺失（例如 PDF 同级 ``*_images`` 目录被删）时记录警告并跳过。
+        """
+        dst = Path(asset_save_dir).resolve()
+        dst.mkdir(parents=True, exist_ok=True)
+        for content in contents:
+            src = content.content_url
+            if not src:
+                continue
+            target = dst / os.path.basename(src)
+            if target.exists():
+                content.content_url = str(target)
+                continue
+            if os.path.isfile(src):
+                shutil.copy2(src, target)
+                content.content_url = str(target)
+            else:
+                Logger.warning(
+                    f"Asset source missing, cannot materialize: {src}. "
+                    "若需重新生成图片，请删除该 PDF 同级的 *_images 目录"
+                    "或清理解析缓存后重试。"
+                )
 
     def _convert_to_contents(
         self,
