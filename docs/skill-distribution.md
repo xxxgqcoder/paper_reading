@@ -17,10 +17,9 @@
 - 每个 Skill 一个子目录，核心文档为 `SKILL.md`
 - `SKILL.md` 顶部使用 YAML frontmatter（`name`、`description`）提升 Agent 发现性
 
-当前仓库中可见 Skill 目录：
+当前仓库只维护一个统一 Skill：
 
-- `.agents/skills/digest-to-md/`
-- `.agents/skills/extract-pages/`
+- `.agents/skills/pdf-reading-skill/`
 
 ### 2.2 包内 Skill 目录（发布态）
 
@@ -81,17 +80,13 @@ CLI 逻辑（`paper_reading/cli.py`）：
 4. `paper-reading install-skills` 可返回成功 JSON，并正确复制到 `~/.agents/skills/`。
 5. `paper-reading install-skills --uninstall` 可正确清理安装内容。
 
-## 6. 差异处理结果（已完成）
+## 6. 合并结果
 
-已完成以下一致性修复：
+`digest-to-md` 与 `extract-pages` 已合并为 `pdf-reading-skill`。安装新 Skill 时，CLI 会清理这两个旧的全局 Skill 目录。
 
-1. 将 `pyproject.toml` 中 `force-include` 从 `process-pdf` 修正为 `digest-to-md`。
-2. 将 `README.md` 中 Skill 列表与文档链接同步为 `digest-to-md`。
+当前分发映射：
 
-当前分发配置与仓库目录已对齐：
-
-- `.agents/skills/digest-to-md/SKILL.md` -> `paper_reading/_skills/digest-to-md/SKILL.md`
-- `.agents/skills/extract-pages/SKILL.md` -> `paper_reading/_skills/extract-pages/SKILL.md`
+- `.agents/skills/pdf-reading-skill/SKILL.md` -> `paper_reading/_skills/pdf-reading-skill/SKILL.md`
 
 ---
 

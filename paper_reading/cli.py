@@ -1,25 +1,27 @@
-"""paper_reading CLI - PDF parsing, translation, summarization and page extraction.
+"""paper_reading CLI - unified PDF parsing, inspection, and page extraction.
 
 Commands:
-  process (default)   Parse PDF, optional summary/translate; output Markdown.
-  extract-pages       Extract page ranges from a PDF.
+  parse (default)     Parse PDF to Markdown; AI steps are opt-in.
+  inspect             Read front matter and infer printed/PDF page offset.
+  extract             Extract printed page ranges with an optional offset.
   download-models     Download MineRU models to local cache.
   install-skills      Deploy SKILL.md to ~/.agents/skills/.
-  get-schema          Print the JSON schema for ProcessParams.
+  get-schema          Print the JSON schema for PdfReadingParams.
 
-Usage (process):
-    paper-reading --file_path <pdf> --final_md_file_save_dir <dir>
+Usage (parse):
+    paper-reading parse --file_path <pdf> --output_dir <dir>
     paper-reading --config <config.json>
 
-Usage (extract-pages):
-    paper-reading extract-pages --input_pdf <pdf> --pages 1-10 3,5-7
+Usage (inspect/extract):
+    paper-reading inspect --file_path <pdf> --inspect_pages 20
+    paper-reading extract --file_path <pdf> --pages 1-10 --page_number_offset 12
 
 Usage (download-models):
     paper-reading download-models [--model <model_name>]
 
 Usage (install-skills):
     paper-reading install-skills [--uninstall]
-    
+
 Usage (get-schema):
     paper-reading get-schema
 """
@@ -33,10 +35,9 @@ import sys
 import time
 from pathlib import Path
 
-from .config import ExtractPagesParams, GenerationConfig, ProcessParams, Step
-from .extract_pages import run_extract_pages
+from .config import GenerationConfig, PdfAction, PdfReadingParams, Step
 from .log import Logger
-from .pipeline import process
+from .reader import pdf_reading
 
 # 内置 skill 资源目录（打包到 wheel 中）；开发模式回退到仓库 .agents/skills/
 _SKILLS_DIR = Path(__file__).parent / "_skills"
@@ -44,6 +45,7 @@ if not _SKILLS_DIR.is_dir():
     _SKILLS_DIR = Path(__file__).parent.parent / ".agents" / "skills"
 # 全局 skill 安装目标目录
 _GLOBAL_SKILLS_DIR = Path.home() / ".agents" / "skills"
+_LEGACY_SKILL_NAMES = ("digest-to-md", "extract-pages")
 
 
 def _download_models(model_name: str = "all", source: str = "huggingface") -> None:
@@ -56,7 +58,12 @@ def _download_models(model_name: str = "all", source: str = "huggingface") -> No
     if source not in ("huggingface", "modelscope"):
         print(
             json.dumps(
-                {"status": "error", "error": f"Unknown source: {source}. Use 'huggingface' or 'modelscope'"},
+                {
+                    "status": "error",
+                    "error": (
+                        f"Unknown source: {source}. Use 'huggingface' or 'modelscope'"
+                    ),
+                },
                 ensure_ascii=False,
             )
         )
@@ -71,6 +78,7 @@ def _download_models(model_name: str = "all", source: str = "huggingface") -> No
 
     # 设置 MineRU 环境（必须在导入 mineru 模块前完成）
     from paper_reading.pdf_parser import _setup_mineru_env
+
     _setup_mineru_env(model_source=source)
 
     try:
@@ -126,7 +134,7 @@ def _install_skills(uninstall: bool = False) -> None:
 
     if uninstall:
         removed = []
-        for name in skill_names:
+        for name in [*skill_names, *_LEGACY_SKILL_NAMES]:
             target = _GLOBAL_SKILLS_DIR / name
             if target.exists():
                 shutil.rmtree(target)
@@ -141,6 +149,12 @@ def _install_skills(uninstall: bool = False) -> None:
 
     _GLOBAL_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     installed = []
+    removed_legacy = []
+    for name in _LEGACY_SKILL_NAMES:
+        legacy_target = _GLOBAL_SKILLS_DIR / name
+        if legacy_target.exists():
+            shutil.rmtree(legacy_target)
+            removed_legacy.append(name)
     for name in skill_names:
         src = _SKILLS_DIR / name
         target = _GLOBAL_SKILLS_DIR / name
@@ -154,6 +168,7 @@ def _install_skills(uninstall: bool = False) -> None:
                 "status": "success",
                 "action": "install",
                 "skills": installed,
+                "removed_legacy_skills": removed_legacy,
                 "target": str(_GLOBAL_SKILLS_DIR),
             },
             ensure_ascii=False,
@@ -169,39 +184,33 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description=(
-            "PDF tool: parse/translate/summarize (default),"
-            " extract pages, or install skills."
+            "Unified PDF tool: parse (default), inspect front matter, extract pages,"
+            " or install the bundled skill."
         ),
     )
-
-    # Command: process (default but explicit via subparser adds clarity)
-    # 为了保持向后兼容，如果第一个参数不是子命令，默认为 "process"
-    # 但 argparse 原生不支持这种混合模式很容易。这里我们采用显式添加 process 子命令
-    # 同时在如果不匹配任何子命令时，尝试解析为主命令参数
-    # 为简单起见，我们把 process 的参数加到主解析器上，但也添加 explicit command
-
-    # 策略：如果不带任何子命令，会被视作 process
-    pass
 
     parser.add_argument(
         "command_arg",
         nargs="?",
-        default="process",
+        default="parse",
         choices=[
+            "parse",
             "process",
+            "inspect",
+            "extract",
             "extract-pages",
             "download-models",
             "install-skills",
             "get-schema",
         ],
         help=(
-            "process (default), extract-pages, download-models, "
+            "parse (default), inspect, extract, download-models, "
             "install-skills, or get-schema"
         ),
     )
 
-    # --- process 参数 ---
-    parser.add_argument("--config", help="Path to JSON config file (process only)")
+    # --- parse 参数 ---
+    parser.add_argument("--config", help="Path to JSON config file (parse only)")
     parser.add_argument("--file_path", help="path to pdf file")
     parser.add_argument(
         "--final_md_file_save_dir",
@@ -209,7 +218,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--steps",
-        default="summary,translate,original",
+        default="original",
         help=f"comma-separated processing steps (valid: {valid_steps})",
     )
     parser.add_argument(
@@ -221,18 +230,12 @@ def main() -> None:
     parser.add_argument(
         "--chat_model_name",
         default="qwen/qwen3.5-flash-02-23",
-        help=(
-            "chat model name "
-            "(default: qwen/qwen3.5-flash-02-23)"
-        ),
+        help=("chat model name (default: qwen/qwen3.5-flash-02-23)"),
     )
     parser.add_argument(
         "--vision_model_name",
         default="qwen/qwen3.5-flash-02-23",
-        help=(
-            "vision model name "
-            "(default: qwen/qwen3.5-flash-02-23)"
-        ),
+        help=("vision model name (default: qwen/qwen3.5-flash-02-23)"),
     )
     parser.add_argument(
         "--temperature",
@@ -264,7 +267,10 @@ def main() -> None:
     parser.add_argument(
         "--asset_save_dir",
         default="",
-        help="directory to save parsed assets (default: auto, {pdf_stem}_images next to PDF)",
+        help=(
+            "directory to save parsed assets "
+            "(default: auto, {pdf_stem}_images next to PDF)"
+        ),
     )
     parser.add_argument(
         "--cache_data_dir",
@@ -294,14 +300,26 @@ def main() -> None:
         help="MineRU inference device (default: auto-detect from environment)",
     )
 
-    # --- extract-pages 参数 ---
-    parser.add_argument("--input_pdf", help="path to input PDF (for extract-pages)")
+    # --- inspect/extract 参数 ---
+    parser.add_argument("--input_pdf", help="legacy alias for --file_path")
     parser.add_argument(
         "--pages",
         nargs="+",
-        help="page ranges to extract, e.g. 1-93 '100,105-110' (for extract-pages)",
+        help="printed page ranges, e.g. 1-93 '100,105-110' (for extract)",
     )
-    parser.add_argument("--output_dir", help="output directory (for extract-pages)")
+    parser.add_argument("--output_dir", help="output directory (for parse/extract)")
+    parser.add_argument(
+        "--page_number_offset",
+        type=int,
+        default=0,
+        help="printed-to-PDF page offset: pdf_page = printed_page + offset",
+    )
+    parser.add_argument(
+        "--inspect_pages",
+        type=int,
+        default=20,
+        help="number of front-matter PDF pages to inspect (default: 20)",
+    )
 
     # --- install-skills 参数 ---
     parser.add_argument(
@@ -320,7 +338,9 @@ def main() -> None:
         "--source",
         default="huggingface",
         choices=["hf", "modelscope", "huggingface"],
-        help="model download source: huggingface/hf or modelscope (for download-models)",
+        help=(
+            "model download source: huggingface/hf or modelscope (for download-models)"
+        ),
     )
 
     args = parser.parse_args()
@@ -330,7 +350,7 @@ def main() -> None:
         # 输出 JSON Schema
         print(
             json.dumps(
-                ProcessParams.model_json_schema(),
+                PdfReadingParams.model_json_schema(),
                 indent=2,
                 ensure_ascii=False,
             )
@@ -347,29 +367,31 @@ def main() -> None:
         _install_skills(uninstall=args.uninstall)
         return
 
-    if args.command_arg == "extract-pages":
-        if not args.input_pdf and args.file_path and args.pages:
-            # 尝试使用 --file_path 作为 fallback
-            args.input_pdf = args.file_path
-        if not args.input_pdf or not args.pages:
-            parser.error("extract-pages requires --input_pdf and --pages")
+    if args.command_arg in ("inspect", "extract", "extract-pages"):
+        action = (
+            PdfAction.INSPECT if args.command_arg == "inspect" else PdfAction.EXTRACT
+        )
+        input_pdf = args.input_pdf or args.file_path
+        if not input_pdf:
+            parser.error(f"{args.command_arg} requires --file_path")
+        if action == PdfAction.EXTRACT and not args.pages:
+            parser.error(f"{args.command_arg} requires --pages")
 
         begin_ts = time.time()
         try:
-            params = ExtractPagesParams(
-                input_pdf=args.input_pdf,
-                pages=args.pages,
-                output_dir=args.output_dir,
+            params = PdfReadingParams(
+                action=action,
+                file_path=input_pdf,
+                pages=args.pages or [],
+                output_dir=args.output_dir or "",
+                page_number_offset=args.page_number_offset,
+                inspect_pages=args.inspect_pages,
             )
-            out_paths = run_extract_pages(params)
-            result = {
-                "status": "success",
-                "output_files": out_paths,
-                "elapsed_seconds": round(time.time() - begin_ts, 2),
-            }
+            unified_result = asyncio.run(pdf_reading(params))
+            result = {"status": "success", **unified_result.model_dump(mode="json")}
             print(json.dumps(result, ensure_ascii=False))
         except Exception as e:
-            Logger.error(f"Extract-pages failed: {e}")
+            Logger.error(f"{args.command_arg} failed: {e}")
             result = {
                 "status": "error",
                 "error": str(e),
@@ -379,8 +401,7 @@ def main() -> None:
             sys.exit(1)
         return
 
-    # --- process (default) ---
-    # 构造 ProcessParams
+    # --- parse / legacy process (default) ---
     try:
         if args.config:
             # 从文件加载
@@ -391,12 +412,14 @@ def main() -> None:
                 # 允许传入部分参数，从 CLI 补全吗？不，简单起见，config 文件优先且完备
                 # 或者，我们可以先加载 config，也就是个 dict，然后 validate
                 config_data = json.load(f)
-                params = ProcessParams.model_validate(config_data)
+                config_data.setdefault("action", "parse")
+                params = PdfReadingParams.model_validate(config_data)
         else:
-            if not args.file_path or not args.final_md_file_save_dir:
+            output_dir = args.output_dir or args.final_md_file_save_dir
+            if not args.file_path or not output_dir:
                 parser.error(
-                    "process requires --file_path and "
-                    "--final_md_file_save_dir (or --config)"
+                    "parse requires --file_path and --output_dir "
+                    "(legacy: --final_md_file_save_dir), or --config"
                 )
 
             # 手动构造 GenerationConfig
@@ -408,9 +431,10 @@ def main() -> None:
             )
 
             # 构造 ProcessParams
-            params = ProcessParams(
+            params = PdfReadingParams(
+                action=PdfAction.PARSE,
                 file_path=args.file_path,
-                output_dir=os.path.realpath(args.final_md_file_save_dir),
+                output_dir=os.path.realpath(output_dir),
                 steps=[s.strip() for s in args.steps.split(",")],
                 src_lang=args.src_lang,
                 target_lang=args.target_lang,
@@ -437,13 +461,8 @@ def main() -> None:
     Logger.info(f"Processing file: {os.path.basename(params.file_path)}")
 
     try:
-        proc_result = asyncio.run(process(params))
-        result = {
-            "status": "success",
-            "output_file": proc_result.output_file,
-            "steps_completed": proc_result.steps_completed,
-            "elapsed_seconds": proc_result.elapsed_seconds,
-        }
+        proc_result = asyncio.run(pdf_reading(params))
+        result = {"status": "success", **proc_result.model_dump(mode="json")}
         print(json.dumps(result, ensure_ascii=False))
     except Exception as e:
         Logger.error(f"Processing failed: {e}")

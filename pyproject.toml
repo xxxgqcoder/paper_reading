@@ -1,7 +1,7 @@
 [project]
 name = "paper-reading"
-version = "0.1.1"
-description = "A PDF processing pipeline for academic papers with summarization and translation"
+version = "0.2.0"
+description = "Unified PDF-to-Markdown, front-matter inspection, and page extraction workflow"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,6 +11,7 @@ dependencies = [
     "mineru[pipeline]>=3.1.4",
     "modelscope>=1.36.2",
     "openai>=1.109.1",
+    "pypdf>=6.0.0",
     "pydantic>=2.0.0",
     "six",
     "tiktoken",
@@ -36,8 +37,7 @@ paper-reading = "paper_reading.cli:main"
 packages = ["paper_reading"]
 
 [tool.hatch.build.targets.wheel.force-include]
-".agents/skills/digest-to-md/SKILL.md" = "paper_reading/_skills/digest-to-md/SKILL.md"
-".agents/skills/extract-pages/SKILL.md" = "paper_reading/_skills/extract-pages/SKILL.md"
+".agents/skills/pdf-reading-skill/SKILL.md" = "paper_reading/_skills/pdf-reading-skill/SKILL.md"
 "paper_reading/resources/mineru.json" = "paper_reading/resources/mineru.json"
 
 [tool.ruff]

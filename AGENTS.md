@@ -19,27 +19,33 @@ uv run paper-reading download-models --model code-formula
 ### PDF 处理
 
 ```bash
-# 基本用法
-uv run paper-reading --file_path input.pdf --final_md_file_save_dir output/
+# 默认只解析原文为 Markdown，不启用 AI 总结/翻译
+uv run paper-reading parse --file_path input.pdf --output_dir output/
 
 # 使用配置文件
 uv run paper-reading --config config.json
 
-# 指定步骤
-uv run paper-reading --file_path input.pdf \
-  --final_md_file_save_dir output/ \
+# 用户明确要求 AI 总结时才指定 summary，并通过环境变量提供 LLM 配置
+uv run paper-reading parse --file_path input.pdf \
+  --output_dir output/ \
   --steps summary,original
 ```
 
-### 页面提取
+### 目录检查与页面提取
 
 ```bash
-# 提取指定页面
-uv run paper-reading extract-pages \
-  --input_pdf input.pdf \
+# 先读取目录和前置页，核验 pdf_page = printed_page + offset
+uv run paper-reading inspect --file_path input.pdf --inspect_pages 20
+
+# 再按印刷页码和已核验 offset 提取
+uv run paper-reading extract \
+  --file_path input.pdf \
   --pages 1-10 15,20-25 \
+  --page_number_offset 12 \
   --output_dir output/
 ```
+
+按 chapter 提取时，Agent 必须读取目录页，并用前几页中至少两个页码证据核验印刷页码与 PDF 物理页码的 gap；低置信度或扫描版应目视复核。
 
 ### Skill 安装
 
@@ -73,18 +79,15 @@ uv run paper-reading get-schema
 # 1. 首次安装：下载模型
 uv run paper-reading download-models
 
-# 2. 配置环境变量（可选）
+# 2. 仅在明确需要 AI 总结/翻译时配置环境变量（不要泄露 Key）
 export PR_LLM_ENDPOINT="https://..."
 export PR_LLM_API_KEY="sk-..."
 export MINERU_MODEL_SOURCE=modelscope  # 默认 modelscope，国内网络推荐
 
-# 3. 处理学术论文（device 自动检测，图片自动保到 PDF 同级目录）
-uv run paper-reading \
+# 3. 处理学术论文（默认仅 original；device 自动检测）
+uv run paper-reading parse \
   --file_path paper.pdf \
-  --final_md_file_save_dir output/ \
-  --steps summary,original \
-  --src_lang en \
-  --target_lang zh
+  --output_dir output/
 
 # 4. 安装为全局 skill（供 AI Agent 使用）
 uv run paper-reading install-skills
@@ -112,16 +115,16 @@ uv run paper-reading install-skills
 }
 ```
 
-**process 输出示例**：
+**parse 输出示例**：
 ```json
 {
   "status": "success",
   "output_file": "output/paper.md",
-  "steps_completed": ["summary", "translate", "original"],
+  "action": "parse",
+  "steps_completed": ["original"],
   "elapsed_seconds": 123.45
 }
 ```
 
 在创建PR前，检查项目内的.agents/目录，确保其中的skills文档是最新的 
-
 

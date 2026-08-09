@@ -1,5 +1,4 @@
 import os
-from enum import Enum
 
 from pydantic import BaseModel, Field, model_validator
 from strenum import StrEnum
@@ -12,6 +11,7 @@ def _detect_device() -> str:
     """
     try:
         import torch
+
         if torch.backends.mps.is_available():
             return "mps"
         if torch.cuda.is_available():
@@ -21,7 +21,7 @@ def _detect_device() -> str:
     return "auto"
 
 
-class Step(str, Enum):
+class Step(StrEnum):
     SUMMARY = "summary"
     TRANSLATE = "translate"
     ORIGINAL = "original"
@@ -72,6 +72,7 @@ DEFAULT_PROMPT_SUMMARY = (
 
 class GenerationConfig(BaseModel):
     """LLM 生成配置参数。"""
+
     temperature: float = Field(default=0.7, description="采样温度，越高生成内容越随机")
     top_p: float = Field(default=0.3, description="核采样阈值")
     repeat_penalty: float = Field(default=1.1, description="重复惩罚系数")
@@ -129,10 +130,10 @@ class ProcessParams(BaseModel):
 
     file_path: str = Field(..., description="待处理的 PDF 文件路径")
     output_dir: str = Field(..., description="Markdown 输出文件的保存目录")
-    
+
     steps: list[str] = Field(
-        default_factory=lambda: ["summary", "original"],
-        description="处理步骤列表，可选值: summary, translate, original"
+        default_factory=lambda: ["original"],
+        description="处理步骤列表，可选值: summary, translate, original",
     )
     src_lang: str = Field(default="en", description="源文档语言代码，默认 'en'")
     target_lang: str = Field(default="zh", description="目标翻译语言代码，默认 'zh'")
@@ -142,27 +143,31 @@ class ProcessParams(BaseModel):
     llm_api_key: str = Field(default="", description="LLM API Key")
 
     # 模型与生成参数
-    chat_model_name: str = Field(default="qwen/qwen3.5-flash-02-23", description="聊天模型名称")
-    vision_model_name: str = Field(default="qwen/qwen3.5-flash-02-23", description="视觉模型名称")
-    
-    gen_conf: GenerationConfig = Field(
-        default_factory=GenerationConfig, 
-        description="生成参数配置 (temperature, top_p, etc.)"
+    chat_model_name: str = Field(
+        default="qwen/qwen3.5-flash-02-23", description="聊天模型名称"
     )
-    
+    vision_model_name: str = Field(
+        default="qwen/qwen3.5-flash-02-23", description="视觉模型名称"
+    )
+
+    gen_conf: GenerationConfig = Field(
+        default_factory=GenerationConfig,
+        description="生成参数配置 (temperature, top_p, etc.)",
+    )
+
     max_context_token_num: int = Field(
-        default=120000, 
-        description="用于总结的最大上下文 token 数"
+        default=120000, description="用于总结的最大上下文 token 数"
     )
 
     # 路径
     asset_save_dir: str = Field(
         default="",
-        description="解析后的图片等资源保存目录，为空时自动使用 PDF 同级的 {stem}_images 目录"
+        description=(
+            "解析后的图片等资源保存目录，为空时自动使用 PDF 同级的 {stem}_images 目录"
+        ),
     )
     cache_data_dir: str = Field(
-        default="~/.cache/llm_cache", 
-        description="磁盘缓存目录"
+        default="~/.cache/llm_cache", description="磁盘缓存目录"
     )
 
     # MineRU pipeline 配置
@@ -178,15 +183,19 @@ class ProcessParams(BaseModel):
     # prompt 模板
     prompt_translate: str = Field(
         default=DEFAULT_PROMPT_TRANSLATE,
-        description="翻译 Prompt 模板，支持 {src_lang}, {target_lang}, {content} 占位符"
+        description=(
+            "翻译 Prompt 模板，支持 {src_lang}, {target_lang}, {content} 占位符"
+        ),
     )
     prompt_summary: str = Field(
         default=DEFAULT_PROMPT_SUMMARY,
-        description="总结 Prompt 模板，支持 {src_lang}, {target_lang}, {content} 占位符"
+        description=(
+            "总结 Prompt 模板，支持 {src_lang}, {target_lang}, {content} 占位符"
+        ),
     )
 
-    @model_validator(mode='after')
-    def resolve_defaults_and_paths(self) -> 'ProcessParams':
+    @model_validator(mode="after")
+    def resolve_defaults_and_paths(self) -> "ProcessParams":
         # 从环境变量回退读取 LLM 连接信息
         if not self.llm_endpoint:
             self.llm_endpoint = os.environ.get("PR_LLM_ENDPOINT", "")
@@ -196,7 +205,7 @@ class ProcessParams(BaseModel):
         # 自动检测推理设备
         if not self.mineru_device:
             self.mineru_device = _detect_device()
-            
+
         # 路径展开
         if self.asset_save_dir:
             self.asset_save_dir = _expand_path(self.asset_save_dir)
@@ -206,7 +215,7 @@ class ProcessParams(BaseModel):
             self.output_dir = _expand_path(self.output_dir)
         if self.file_path:
             self.file_path = _expand_path(self.file_path)
-            
+
         return self
 
 
@@ -224,3 +233,61 @@ class ExtractPagesParams(BaseModel):
     input_pdf: str = Field(..., description="输入 PDF 文件路径")
     pages: list[str] = Field(..., description="页码范围列表，例如 ['1-5', '10']")
     output_dir: str | None = Field(None, description="输出目录，默认与输入文件相同")
+    page_number_offset: int = Field(
+        0,
+        description="印刷页码到 PDF 物理页码的偏移量；PDF 页码 = 印刷页码 + offset",
+    )
+
+
+class PdfAction(StrEnum):
+    """统一 PDF 阅读入口支持的动作。"""
+
+    PARSE = "parse"
+    INSPECT = "inspect"
+    EXTRACT = "extract"
+
+
+class PdfReadingParams(ProcessParams):
+    """统一 PDF 阅读入口参数。
+
+    ``parse`` 复用 ProcessParams；``inspect`` 读取前置页、目录候选和页码
+    证据；``extract`` 按印刷页码及偏移量提取页面。
+    """
+
+    action: PdfAction = Field(default=PdfAction.PARSE, description="执行动作")
+    output_dir: str = Field(
+        default="",
+        description="parse/extract 输出目录；parse 时必填",
+    )
+    pages: list[str] = Field(
+        default_factory=list,
+        description="extract 的页码范围，如 ['1-5', '10']",
+    )
+    page_number_offset: int = Field(
+        0,
+        description="印刷页码到 PDF 物理页码的偏移量；PDF 页码 = 印刷页码 + offset",
+    )
+    inspect_pages: int = Field(
+        20,
+        ge=1,
+        description="inspect 时读取的 PDF 前置页数",
+    )
+
+    @model_validator(mode="after")
+    def validate_action_fields(self) -> "PdfReadingParams":
+        if self.action == PdfAction.PARSE and not self.output_dir:
+            raise ValueError("output_dir is required when action='parse'")
+        if self.action == PdfAction.EXTRACT and not self.pages:
+            raise ValueError("pages is required when action='extract'")
+        return self
+
+
+class PdfReadingResult(BaseModel):
+    """统一 PDF 阅读入口返回值。"""
+
+    action: PdfAction
+    output_file: str | None = None
+    output_files: list[str] = Field(default_factory=list)
+    steps_completed: list[str] = Field(default_factory=list)
+    inspection: dict | None = None
+    elapsed_seconds: float

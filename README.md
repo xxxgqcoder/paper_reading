@@ -1,219 +1,141 @@
-# Paper Reading Pipeline
+# PDF 阅读工具
 
-> 中文文档: [README_zh.md](README_zh.md)
+> English documentation: [README_en.md](README_en.md)
 
-A Python-based PDF processing pipeline for academic papers. It uses **MineRU** for local PDF parsing (text, images, tables) and any **OpenAI-compatible API** (or local Ollama) for summarization and translation, producing clean Markdown output.
+`paper-reading` 提供统一的 PDF 工作流：检查目录与页码偏移、按章节或页码提取页面，以及使用 MineRU 将 PDF 解析为 Markdown。AI 总结和翻译是可选能力，默认不会启用。
 
-## Features
+## 功能
 
-- **PDF Parsing**: MineRU pipeline backend — high-quality layout analysis, text/image/table extraction, no Docker required.
-- **LLM Integration**: Works with Ollama (no API key needed) or any OpenAI-compatible endpoint via environment variables.
-- **Configurable**: Models, paths, generation parameters — all controlled via CLI flags or environment variables.
-- **Caching**: Intermediate results are cached on disk; reprocessing the same file is fast.
-- **Selective Steps**: Run only `original`, `summary`, `translate`, or any combination.
-- **Agent Skills**: Two ready-to-use AI agent skills (`digest-to-md`, `extract-pages`).
+- `parse`：解析文本、图片、表格和公式并输出 Markdown；默认仅执行 `original`，不调用 LLM。
+- `inspect`：读取 PDF 前置页，识别目录候选、章节条目、PDF 总页数及印刷页码偏移证据。
+- `extract`：按印刷页码范围提取 PDF，支持 `pdf_page = printed_page + offset`。
+- `pdf_reading()`：统一 Python API；旧 API 暂时保留作为兼容层。
+- `pdf-reading-skill`：合并后的统一 Agent Skill。
 
-## Requirements
+## 安装
 
-- Python ≥ 3.12
-- [uv](https://docs.astral.sh/uv/) (recommended for dependency and environment management)
-
-## Quick Start
-
-### 1. Install Dependencies
+项目使用 Python 3.12+、uv 与 `pyproject.toml`：
 
 ```sh
 uv sync
-# or
-uv pip install -e .
+uv run paper-reading download-models --source modelscope
 ```
 
-### 2. Download Models (first-time only)
-
-MineRU requires local model weights. Download them before first use to avoid runtime hangs:
+也可安装为全局工具并部署 Skill：
 
 ```sh
-# Download all required models (recommended)
-paper-reading download-models
-
-# Use ModelScope mirror (recommended for users in China)
-paper-reading download-models --source modelscope
-```
-
-### 3. Configure LLM
-
-Set LLM connection via **environment variables**:
-
-```sh
-# Required — LLM API endpoint
-export PR_LLM_ENDPOINT="http://127.0.0.1:11434"       # Local Ollama
-# export PR_LLM_ENDPOINT="https://api.openai.com/v1"  # OpenAI-compatible
-
-# Optional — API key (leave empty for Ollama)
-export PR_LLM_API_KEY="sk-xxx"
-```
-
-- **Ollama**: Start Ollama locally, set `PR_LLM_ENDPOINT`. No `PR_LLM_API_KEY` needed.
-- **OpenAI-compatible**: Set both `PR_LLM_ENDPOINT` and `PR_LLM_API_KEY`.
-
-### 4. Process a PDF
-
-```sh
-paper-reading \
-    --file_path /path/to/paper.pdf \
-    --final_md_file_save_dir /path/to/output/ \
-    --steps summary,translate,original \
-    --src_lang en \
-    --target_lang zh
-```
-
-## Usage
-
-### Process PDF (default command)
-
-```sh
-paper-reading \
-    --file_path /path/to/paper.pdf \
-    --final_md_file_save_dir /path/to/output/ \
-    --src_lang en \
-    --target_lang zh \
-    --steps summary,translate,original
-```
-
-**Parameters:**
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `--file_path` | Yes | Input PDF path (absolute) |
-| `--final_md_file_save_dir` | Yes | Output Markdown directory (absolute) |
-| `--src_lang` | No | Source language, default `en` |
-| `--target_lang` | No | Target language, default `zh` |
-| `--steps` | No | Comma-separated steps: `summary`, `translate`, `original` |
-| `--chat_model_name` | No | Text model name |
-| `--vision_model_name` | No | Vision model name |
-| `--llm_endpoint` | No | LLM API endpoint (falls back to `PR_LLM_ENDPOINT`) |
-| `--llm_api_key` | No | API key (falls back to `PR_LLM_API_KEY`) |
-| `--temperature` | No | Sampling temperature |
-| `--top_p` | No | Top-p sampling |
-| `--num_ctx` | No | Model context length |
-| `--asset_save_dir` | No | Directory for extracted images/tables |
-| `--cache_data_dir` | No | Disk cache directory (default `~/.cache/llm_cache`) |
-
-Use a JSON config file instead of individual flags:
-
-```sh
-paper-reading --config config.json
-```
-
-Print the full config schema:
-
-```sh
-paper-reading get-schema
-```
-
-### Extract PDF Pages
-
-```sh
-paper-reading extract-pages \
-    --input_pdf ~/path/to/input.pdf \
-    --pages 1-93 "100,105-110" \
-    --output_dir /path/to/output/
-```
-
-**Page range syntax:**
-- `1-93` — pages 1 through 93
-- `100,105-110` — page 100 and pages 105–110
-- `1,3,5-7` — pages 1, 3, and 5–7
-
-### Download Models
-
-```sh
-# Download all models
-paper-reading download-models
-
-# Download a specific model
-paper-reading download-models --model code-formula
-
-# Use ModelScope as the download source
-paper-reading download-models --source modelscope
-```
-
-## Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PR_LLM_ENDPOINT` | LLM API endpoint | — |
-| `PR_LLM_API_KEY` | LLM API key | — |
-| `HF_HOME` | HuggingFace cache directory | `~/.cache/huggingface` |
-| `MINERU_MODEL_SOURCE` | Model download source: `huggingface` / `modelscope` | `modelscope` |
-| `MINERU_DEVICE_MODE` | MineRU inference device (empty = auto-detect) | auto-detect |
-
-## JSON Output Format
-
-All commands output JSON for easy integration as agent skills.
-
-**process output:**
-```json
-{
-  "status": "success",
-  "output_file": "output/paper.md",
-  "steps_completed": ["summary", "translate", "original"],
-  "elapsed_seconds": 123.45
-}
-```
-
-**download-models output:**
-```json
-{
-  "status": "completed",
-  "downloaded": 1,
-  "total": 1,
-  "results": [
-    {
-      "model": "code-formula",
-      "status": "success",
-      "path": "/Users/.../.cache/huggingface/hub/..."
-    }
-  ]
-}
-```
-
-## Agent Skills
-
-Two AI agent skills are bundled under `.agents/skills/`:
-
-| Skill | Description | Docs |
-|-------|-------------|------|
-| **digest-to-md** | Parse PDF, summarize and translate to Markdown | [SKILL.md](.agents/skills/digest-to-md/SKILL.md) |
-| **extract-pages** | Extract page ranges from a PDF | [SKILL.md](.agents/skills/extract-pages/SKILL.md) |
-
-### Install Skills Globally
-
-```sh
-# Install CLI tool
 uv tool install paper-reading
-
-# Deploy skill docs to ~/.agents/skills/ (auto-discovered by agents in any workspace)
+paper-reading download-models --source modelscope
 paper-reading install-skills
 ```
 
-Uninstall:
+## 统一 CLI
+
+### 解析 PDF 为 Markdown
 
 ```sh
-paper-reading install-skills --uninstall
-uv tool uninstall paper-reading
+uv run paper-reading parse \
+  --file_path /absolute/path/paper.pdf \
+  --output_dir /absolute/path/output
 ```
 
-### Python API
+默认步骤是 `original`，因此不需要 LLM API Key，也不会生成 AI 摘要或翻译。图片默认保存到 PDF 同级的 `{pdf_stem}_images/`。
+
+若用户明确需要总结或翻译，再显式配置 LLM 并指定步骤：
+
+```sh
+export PR_LLM_ENDPOINT="https://example.com/v1"
+export PR_LLM_API_KEY="<your-api-key>"
+
+uv run paper-reading parse \
+  --file_path /absolute/path/paper.pdf \
+  --output_dir /absolute/path/output \
+  --steps summary,translate,original
+```
+
+不要把 API Key 写入脚本、命令历史、日志或文档。使用本地 Ollama 时可以不设置 Key，但仍需配置 endpoint。
+
+### 检查目录与页码偏移
+
+```sh
+uv run paper-reading inspect \
+  --file_path /absolute/path/book.pdf \
+  --inspect_pages 20
+```
+
+JSON 结果包含：
+
+- `total_pdf_pages`：PDF 物理总页数；
+- `toc_candidate_pages`、`toc_entries`：目录候选页与初步章节映射；
+- `page_number_offset.value/confidence/evidence`：页码偏移及证据；
+- `pages[].text`：供 Agent 阅读与核验的前置页文本。
+
+页码偏移定义为：
+
+```text
+PDF 物理页码 = 书本印刷页码 + page_number_offset
+```
+
+按章节提取时，Agent 应阅读目录和前置页，用至少两个页面交叉验证 offset；扫描版或低置信度结果应渲染页面后目视复核。
+
+### 提取 PDF 页面
+
+```sh
+uv run paper-reading extract \
+  --file_path /absolute/path/book.pdf \
+  --pages 1-20 "25,30-35" \
+  --page_number_offset 12 \
+  --output_dir /absolute/path/output
+```
+
+每个 `--pages` 参数生成一个独立 PDF。页码范围支持 `1-20`、`25,30-35`、`1,3,5-7`。
+
+## Python API
 
 ```python
 import asyncio
-from paper_reading import process, ProcessParams
 
-params = ProcessParams(
-    file_path="/path/to/paper.pdf",
-    final_md_file_save_dir="/path/to/output",
-    steps=["summary", "translate", "original"],
+from paper_reading import PdfReadingParams, pdf_reading
+
+result = asyncio.run(
+    pdf_reading(
+        PdfReadingParams(
+            action="parse",
+            file_path="/absolute/path/paper.pdf",
+            output_dir="/absolute/path/output",
+        )
+    )
 )
-result = asyncio.run(process(params))
+print(result.model_dump())
 ```
+
+`action` 可取 `parse`、`inspect`、`extract`。完整 schema：
+
+```sh
+uv run paper-reading get-schema
+```
+
+## 环境变量
+
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `PR_LLM_ENDPOINT` | 仅 AI 总结/翻译需要的 LLM API 地址 | 无 |
+| `PR_LLM_API_KEY` | OpenAI-compatible API Key | 无 |
+| `HF_HOME` | HuggingFace 缓存目录 | `~/.cache/huggingface` |
+| `MINERU_MODEL_SOURCE` | `huggingface` / `modelscope` | `modelscope` |
+| `MINERU_DEVICE_MODE` | MineRU 推理设备 | 自动检测 |
+
+## Agent Skill
+
+仓库只维护一个 Skill：[pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md)。它覆盖 Markdown 解析、目录阅读、页码偏移核验、章节提取和可选 LLM 流程。
+
+```sh
+uv run paper-reading install-skills
+uv run paper-reading install-skills --uninstall
+```
+
+安装新 Skill 时会清理旧的 `digest-to-md` 与 `extract-pages` 全局目录。
+
+## 兼容性
+
+旧的 `process` / `extract-pages` CLI 名称，以及 `process()` / `run_extract_pages()` Python API 暂时保留。新代码应使用 `parse` / `inspect` / `extract` 与 `pdf_reading()`。

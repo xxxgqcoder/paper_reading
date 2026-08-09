@@ -163,8 +163,16 @@ async def translate_content(ctx: StepContext) -> None:
                 return result
             elif img_path:
                 # Obsidian wikilink 格式
-                img_name = os.path.basename(content_list[idx].content_url) if content_list[idx].content_url else ""
-                result += (f"![[{img_name}]]" if img_name else img_path) + line_breaker + line_breaker
+                img_name = (
+                    os.path.basename(content_list[idx].content_url)
+                    if content_list[idx].content_url
+                    else ""
+                )
+                result += (
+                    (f"![[{img_name}]]" if img_name else img_path)
+                    + line_breaker
+                    + line_breaker
+                )
             elif (
                 content_list[idx].content_type == ContentType.TABLE
                 and content_list[idx].content
