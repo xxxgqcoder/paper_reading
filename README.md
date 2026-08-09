@@ -14,19 +14,31 @@
 
 ## 安装
 
-项目使用 Python 3.12+、uv 与 `pyproject.toml`：
+项目使用 Python 3.12+、uv 与 `pyproject.toml`。在仓库内开发时：
 
 ```sh
 uv sync
-uv run paper-reading download-models --source modelscope
+uv run paper-reading --help
 ```
 
-也可安装为全局工具并部署 Skill：
+当用户要求 Agent 安装全局 CLI 和 Skill 时，Agent 必须遵循仓库内的 [pdf-reading-skill 安装流程](.agents/skills/pdf-reading-skill/SKILL.md)。核心命令是从当前 checkout 安装，而不是从包索引取得不确定版本：
 
 ```sh
-uv tool install paper-reading
-paper-reading download-models --source modelscope
+uv tool install --force .
+paper_reading_bin_dir="$(uv tool dir --bin)"
+export PATH="${paper_reading_bin_dir}:${PATH}"
+command -v paper-reading
+paper-reading --help
 paper-reading install-skills
+test -f ~/.agents/skills/pdf-reading-skill/SKILL.md
+```
+
+不要用 `uv run paper-reading install-skills` 代替全局 CLI 安装；它不能保证离开仓库后 `paper-reading` 仍在 PATH 中。
+
+模型下载不属于 CLI/Skill 安装。只有准备首次解析 PDF 时才执行：
+
+```sh
+paper-reading download-models --source modelscope
 ```
 
 ## 统一 CLI
@@ -130,11 +142,11 @@ uv run paper-reading get-schema
 仓库只维护一个 Skill：[pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md)。它覆盖 Markdown 解析、目录阅读、页码偏移核验、章节提取和可选 LLM 流程。
 
 ```sh
-uv run paper-reading install-skills
-uv run paper-reading install-skills --uninstall
+paper-reading install-skills
+paper-reading install-skills --uninstall
 ```
 
-安装新 Skill 时会清理旧的 `digest-to-md` 与 `extract-pages` 全局目录。
+CLI 和 Skill 的完整安装、PATH 处理、版本一致性检查及验收标准见 [pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md)。安装新 Skill 时会清理旧的 `digest-to-md` 与 `extract-pages` 全局目录。
 
 ## 兼容性
 

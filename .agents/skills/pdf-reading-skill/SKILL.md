@@ -1,6 +1,6 @@
 ---
 name: pdf-reading-skill
-description: 'Unified PDF reading workflow: inspect contents and page-number offsets, extract chapters or page ranges, and parse PDFs to Markdown with optional LLM summary or translation.'
+description: 'Install the paper-reading CLI and Skill, inspect PDF contents and page-number offsets, extract chapters or page ranges, and parse PDFs to Markdown with optional LLM summary or translation.'
 ---
 
 # PDF Reading Skill
@@ -13,12 +13,50 @@ description: 'Unified PDF reading workflow: inspect contents and page-number off
 - 只有用户明确要求总结或翻译时，才添加 `summary` 或 `translate`。
 - 不要把 API Key 直接写进命令、日志、Markdown 或回复；优先通过 `PR_LLM_API_KEY` 环境变量传入。
 
-## 前置条件
+## Agent 安装 CLI 与 Skill
+
+仅当用户明确要求安装、更新或修复 CLI/Skill 时执行本节。在当前仓库中，必须安装当前 checkout，不能用 `uv tool install paper-reading` 从包索引取得不确定版本。
 
 ```sh
-uv tool install paper-reading
-paper-reading download-models --source modelscope
+git rev-parse --show-toplevel
+cd "$(git rev-parse --show-toplevel)"
+test -f pyproject.toml
+rg '^name = "paper-reading"$' pyproject.toml
+command -v uv
+uv tool install --force .
+```
+
+如果仓库身份检查失败，不要对其他项目执行安装；先让用户提供 `paper-reading` checkout 或明确的发布来源。如果 `uv` 不存在，先使用当前系统适用的官方方式安装 uv。
+
+安装后验证 CLI；如果 PATH 尚未生效，更新后续 shell 配置并为当前 Agent 进程补齐 uv 工具目录：
+
+```sh
+uv tool list
+uv tool update-shell
+paper_reading_bin_dir="$(uv tool dir --bin)"
+export PATH="${paper_reading_bin_dir}:${PATH}"
+command -v paper-reading
+paper-reading --help
+```
+
+Agent 必须确认 `uv tool list` 中的版本与 `pyproject.toml` 一致，并确认帮助中存在 `parse`、`inspect`、`extract`、`install-skills`，然后安装和核验 Skill：
+
+```sh
 paper-reading install-skills
+test -f ~/.agents/skills/pdf-reading-skill/SKILL.md
+cmp -s \
+  .agents/skills/pdf-reading-skill/SKILL.md \
+  ~/.agents/skills/pdf-reading-skill/SKILL.md
+```
+
+不要用 `uv run paper-reading install-skills` 代替全局 CLI 安装。Skill 安装成功后，当前 Agent 会话可能要到新任务或重启后才刷新发现结果。
+
+安装完成后，Agent 必须向用户报告 `paper-reading` 的可执行文件路径、`uv tool list` 中的版本、Skill 安装目录，并明确模型是否尚未下载；任何失败都应保留原始错误并指出未完成的步骤。
+
+模型下载不属于 CLI/Skill 安装。只有准备首次解析 PDF 时才执行：
+
+```sh
+paper-reading download-models --source modelscope
 ```
 
 ## 统一入口

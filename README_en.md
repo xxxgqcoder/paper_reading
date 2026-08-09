@@ -14,19 +14,31 @@
 
 ## Install
 
-The project uses Python 3.12+, uv, and `pyproject.toml`:
+The project uses Python 3.12+, uv, and `pyproject.toml`. For development inside the repository:
 
 ```sh
 uv sync
-uv run paper-reading download-models --source modelscope
+uv run paper-reading --help
 ```
 
-Or install the tool and its Agent Skill globally:
+When the user asks an Agent to install the global CLI and Skill, the Agent must follow the bundled [pdf-reading-skill instructions](.agents/skills/pdf-reading-skill/SKILL.md). Install the current checkout rather than an unknown package-index version:
 
 ```sh
-uv tool install paper-reading
-paper-reading download-models --source modelscope
+uv tool install --force .
+paper_reading_bin_dir="$(uv tool dir --bin)"
+export PATH="${paper_reading_bin_dir}:${PATH}"
+command -v paper-reading
+paper-reading --help
 paper-reading install-skills
+test -f ~/.agents/skills/pdf-reading-skill/SKILL.md
+```
+
+Do not substitute `uv run paper-reading install-skills` for global CLI installation; that does not ensure `paper-reading` remains available on PATH outside the repository.
+
+Model download is separate from CLI/Skill installation. Run it only before the first PDF parse:
+
+```sh
+paper-reading download-models --source modelscope
 ```
 
 ## Unified CLI
@@ -109,8 +121,10 @@ print(result.model_dump())
 The repository maintains one Skill: [pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md). Installing it also removes legacy global `digest-to-md` and `extract-pages` directories.
 
 ```sh
-uv run paper-reading install-skills
-uv run paper-reading install-skills --uninstall
+paper-reading install-skills
+paper-reading install-skills --uninstall
 ```
+
+See [pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md) for PATH handling, version checks, and completion criteria.
 
 Legacy `process` / `extract-pages` CLI names and `process()` / `run_extract_pages()` Python APIs remain temporarily available. New integrations should use the unified interface.
