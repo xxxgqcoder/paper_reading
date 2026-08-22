@@ -2,11 +2,11 @@
 
 > English documentation: [README_en.md](README_en.md)
 
-`paper-reading` 提供统一的 PDF 工作流：检查目录与页码偏移、按章节或页码提取页面，以及使用 MineRU 将 PDF 解析为 Markdown。AI 总结和翻译是可选能力，默认不会启用。
+`paper-reading` 提供统一的 PDF 工作流：检查目录与页码偏移、按章节或页码提取页面，以及使用 MineRU 将 PDF 解析为 Markdown。
 
 ## 功能
 
-- `parse`：解析文本、图片、表格和公式并输出 Markdown；默认仅执行 `original`，不调用 LLM。
+- `parse`：解析文本、图片、表格和公式并输出原始 Markdown 内容。
 - `inspect`：读取 PDF 前置页，识别目录候选、章节条目、PDF 总页数及印刷页码偏移证据。
 - `extract`：按印刷页码范围提取 PDF，支持 `pdf_page = printed_page + offset`。
 - `pdf_reading()`：统一 Python API；旧 API 暂时保留作为兼容层。
@@ -51,21 +51,7 @@ uv run paper-reading parse \
   --output_dir /absolute/path/output
 ```
 
-默认步骤是 `original`，因此不需要 LLM API Key，也不会生成 AI 摘要或翻译。图片默认保存到 PDF 同级的 `{pdf_stem}_images/`。
-
-若用户明确需要总结或翻译，再显式配置 LLM 并指定步骤：
-
-```sh
-export PR_LLM_ENDPOINT="https://example.com/v1"
-export PR_LLM_API_KEY="<your-api-key>"
-
-uv run paper-reading parse \
-  --file_path /absolute/path/paper.pdf \
-  --output_dir /absolute/path/output \
-  --steps summary,translate,original
-```
-
-不要把 API Key 写入脚本、命令历史、日志或文档。使用本地 Ollama 时可以不设置 Key，但仍需配置 endpoint。
+默认步骤是 `original`，输出原始解析内容；图片默认保存到 PDF 同级的 `{pdf_stem}_images/`。
 
 ### 检查目录与页码偏移
 
@@ -131,15 +117,13 @@ uv run paper-reading get-schema
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
-| `PR_LLM_ENDPOINT` | 仅 AI 总结/翻译需要的 LLM API 地址 | 无 |
-| `PR_LLM_API_KEY` | OpenAI-compatible API Key | 无 |
 | `HF_HOME` | HuggingFace 缓存目录 | `~/.cache/huggingface` |
 | `MINERU_MODEL_SOURCE` | `huggingface` / `modelscope` | `modelscope` |
 | `MINERU_DEVICE_MODE` | MineRU 推理设备 | 自动检测 |
 
 ## Agent Skill
 
-仓库只维护一个 Skill：[pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md)。它覆盖 Markdown 解析、目录阅读、页码偏移核验、章节提取和可选 LLM 流程。
+仓库只维护一个 Skill：[pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md)。它覆盖 Markdown 解析、目录阅读、页码偏移核验和章节提取。
 
 ```sh
 paper-reading install-skills

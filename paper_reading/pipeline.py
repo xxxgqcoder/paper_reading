@@ -2,7 +2,6 @@ import os
 import time
 
 from .config import (
-    LANG_MAPPING,
     STEP_OUTPUT_ORDER,
     Content,
     ProcessParams,
@@ -39,23 +38,6 @@ async def process(params: ProcessParams) -> ProcessResult:
     begin_ts = time.time()
 
     enabled_steps = parse_steps(params.steps)
-    llm_steps = {
-        Step for Step in enabled_steps if Step.value in ("summary", "translate")
-    }
-
-    # 只有在需要 LLM 的步骤启用时才校验 endpoint
-    if llm_steps and not params.llm_endpoint:
-        raise ValueError(
-            "ProcessParams.llm_endpoint is empty. "
-            "Please set it via CLI --llm_endpoint or env var PR_LLM_ENDPOINT."
-        )
-
-    chat_model = params.chat_model_name
-    vision_model = params.vision_model_name
-    gen_conf = params.gen_conf.model_dump()
-
-    src_lang_display = LANG_MAPPING.get(params.src_lang, params.src_lang)
-    target_lang_display = LANG_MAPPING.get(params.target_lang, params.target_lang)
 
     step_names = [s.value for s in STEP_OUTPUT_ORDER if s in enabled_steps]
     Logger.info(f"Processing started, enabled steps: {step_names}")
@@ -83,17 +65,6 @@ async def process(params: ProcessParams) -> ProcessResult:
     ctx = StepContext(
         md_writer=None,  # type: ignore[arg-type]
         content_list=content_list,
-        src_lang=src_lang_display,
-        target_lang=target_lang_display,
-        chat_model_name=chat_model,
-        vision_model_name=vision_model,
-        gen_conf=gen_conf,
-        prompt_translate=params.prompt_translate,
-        prompt_summary=params.prompt_summary,
-        max_context_token_num=params.max_context_token_num,
-        asset_save_dir=params.asset_save_dir,
-        llm_endpoint=params.llm_endpoint,
-        llm_api_key=params.llm_api_key,
     )
     # errors="replace": MineRU 从部分 PDF 抽取的文本可能含非法 surrogate 码点，
     # 严格 UTF-8 编码会在写盘时抛 "surrogates not allowed" 并中断输出，

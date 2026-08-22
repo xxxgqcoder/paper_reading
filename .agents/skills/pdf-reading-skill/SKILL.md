@@ -1,6 +1,6 @@
 ---
 name: pdf-reading-skill
-description: 'Install the paper-reading CLI and Skill, inspect PDF contents and page-number offsets, extract chapters or page ranges, and parse PDFs to Markdown with optional LLM summary or translation.'
+description: 'Install the paper-reading CLI and Skill, inspect PDF contents and page-number offsets, extract chapters or page ranges, and parse PDFs to source-preserving Markdown.'
 ---
 
 # PDF Reading Skill
@@ -9,9 +9,8 @@ description: 'Install the paper-reading CLI and Skill, inspect PDF contents and 
 
 ## 默认行为
 
-- 默认只执行 `original`：用 MineRU 将 PDF 解析为 Markdown，不调用 LLM，不生成 AI 摘要或翻译。
-- 只有用户明确要求总结或翻译时，才添加 `summary` 或 `translate`。
-- 不要把 API Key 直接写进命令、日志、Markdown 或回复；优先通过 `PR_LLM_API_KEY` 环境变量传入。
+- 默认只执行 `original`：用 MineRU 将 PDF 解析为 Markdown，并保留原始内容结构。
+- Skill 只负责 PDF 检查、页面提取和源内容解析；解析后的 Markdown 由上层阅读流程按需处理。
 
 ## Agent 安装 CLI 与 Skill
 
@@ -113,31 +112,6 @@ paper-reading parse \
 等价于 `--steps original`。图片默认保存到 PDF 同级的 `{pdf_stem}_images/`，Markdown 使用 Obsidian wikilink 引用。
 
 若输出 Markdown 已存在且非空，工具会停止，避免覆盖；需要重跑时先由用户确认如何处理已有结果。
-
-## 可选 AI 总结或翻译
-
-仅当用户明确要求 AI 总结/翻译时：
-
-1. 检查 `PR_LLM_ENDPOINT` 与 `PR_LLM_API_KEY` 是否已配置，但不要输出其值。
-2. 若缺失，提示用户提供 OpenAI-compatible LLM endpoint 和 API Key，并建议在本地环境中设置：
-
-```sh
-export PR_LLM_ENDPOINT="https://example.com/v1"
-export PR_LLM_API_KEY="<user-provided-key>"
-```
-
-3. 用户完成配置后，根据需求显式执行：
-
-```sh
-paper-reading parse \
-  --file_path /absolute/path/input.pdf \
-  --output_dir /absolute/path/output \
-  --steps summary,original
-```
-
-翻译使用 `--steps translate,original`；同时总结和翻译才使用 `--steps summary,translate,original`。
-
-本地 Ollama 可不提供 API Key，但仍需配置 `PR_LLM_ENDPOINT`。
 
 ## Python API
 

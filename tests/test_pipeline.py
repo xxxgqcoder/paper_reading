@@ -7,8 +7,11 @@ errors="replace" 容错，保证整篇 Markdown 写完且可正常读回。
 
 import asyncio
 
+import pytest
+
 from paper_reading import pipeline
 from paper_reading.config import ProcessParams, Step
+from paper_reading.steps import parse_steps
 
 
 def test_process_writes_surrogate_without_crashing(tmp_path, monkeypatch) -> None:
@@ -44,3 +47,10 @@ def test_process_writes_surrogate_without_crashing(tmp_path, monkeypatch) -> Non
     assert "前缀" in content
     assert "后缀" in content
     assert "\ud83d" not in content
+
+
+def test_parse_steps_only_accepts_original() -> None:
+    assert parse_steps(["original"]) == {Step.ORIGINAL}
+
+    with pytest.raises(ValueError, match="Unknown step: 'summary'"):
+        parse_steps(["summary"])

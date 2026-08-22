@@ -1,7 +1,7 @@
 """paper_reading CLI - unified PDF parsing, inspection, and page extraction.
 
 Commands:
-  parse (default)     Parse PDF to Markdown; AI steps are opt-in.
+  parse (default)     Parse PDF to Markdown.
   inspect             Read front matter and infer printed/PDF page offset.
   extract             Extract printed page ranges with an optional offset.
   download-models     Download MineRU models to local cache.
@@ -35,7 +35,7 @@ import sys
 import time
 from pathlib import Path
 
-from .config import GenerationConfig, PdfAction, PdfReadingParams, Step
+from .config import PdfAction, PdfReadingParams, Step
 from .log import Logger
 from .reader import pdf_reading
 
@@ -179,9 +179,6 @@ def _install_skills(uninstall: bool = False) -> None:
 def main() -> None:
     valid_steps = ",".join(s.value for s in Step)
 
-    # 获取 GenerationConfig 的默认值作为 argparse 的默认值
-    default_gen_conf = GenerationConfig()
-
     parser = argparse.ArgumentParser(
         description=(
             "Unified PDF tool: parse (default), inspect front matter, extract pages,"
@@ -219,50 +216,7 @@ def main() -> None:
     parser.add_argument(
         "--steps",
         default="original",
-        help=f"comma-separated processing steps (valid: {valid_steps})",
-    )
-    parser.add_argument(
-        "--src_lang", default="en", help="source language (default: en)"
-    )
-    parser.add_argument(
-        "--target_lang", default="zh", help="target language (default: zh)"
-    )
-    parser.add_argument(
-        "--chat_model_name",
-        default="qwen/qwen3.5-flash-02-23",
-        help=("chat model name (default: qwen/qwen3.5-flash-02-23)"),
-    )
-    parser.add_argument(
-        "--vision_model_name",
-        default="qwen/qwen3.5-flash-02-23",
-        help=("vision model name (default: qwen/qwen3.5-flash-02-23)"),
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=default_gen_conf.temperature,
-        help="generation temperature",
-    )
-    parser.add_argument(
-        "--top_p", type=float, default=default_gen_conf.top_p, help="top-p sampling"
-    )
-    parser.add_argument(
-        "--repeat_penalty",
-        type=float,
-        default=default_gen_conf.repeat_penalty,
-        help="repeat penalty",
-    )
-    parser.add_argument(
-        "--num_ctx",
-        type=int,
-        default=default_gen_conf.num_ctx,
-        help="model context length",
-    )
-    parser.add_argument(
-        "--max_context_token_num",
-        type=int,
-        default=120000,
-        help="max input token num for summary",
+        help=f"comma-separated processing steps (only: {valid_steps})",
     )
     parser.add_argument(
         "--asset_save_dir",
@@ -271,21 +225,6 @@ def main() -> None:
             "directory to save parsed assets "
             "(default: auto, {pdf_stem}_images next to PDF)"
         ),
-    )
-    parser.add_argument(
-        "--cache_data_dir",
-        default="~/.cache/llm_cache",
-        help="disk cache directory",
-    )
-    parser.add_argument(
-        "--llm_endpoint",
-        default=os.environ.get("PR_LLM_ENDPOINT", ""),
-        help="LLM API endpoint (default: env PR_LLM_ENDPOINT)",
-    )
-    parser.add_argument(
-        "--llm_api_key",
-        default=os.environ.get("PR_LLM_API_KEY", ""),
-        help="LLM API key (default: env PR_LLM_API_KEY)",
     )
     parser.add_argument(
         "--mineru_model_source",
@@ -422,30 +361,13 @@ def main() -> None:
                     "(legacy: --final_md_file_save_dir), or --config"
                 )
 
-            # 手动构造 GenerationConfig
-            gen_conf = GenerationConfig(
-                temperature=args.temperature,
-                top_p=args.top_p,
-                repeat_penalty=args.repeat_penalty,
-                num_ctx=args.num_ctx,
-            )
-
             # 构造 ProcessParams
             params = PdfReadingParams(
                 action=PdfAction.PARSE,
                 file_path=args.file_path,
                 output_dir=os.path.realpath(output_dir),
                 steps=[s.strip() for s in args.steps.split(",")],
-                src_lang=args.src_lang,
-                target_lang=args.target_lang,
-                llm_endpoint=args.llm_endpoint,
-                llm_api_key=args.llm_api_key,
-                chat_model_name=args.chat_model_name,
-                vision_model_name=args.vision_model_name,
-                gen_conf=gen_conf,
-                max_context_token_num=args.max_context_token_num,
                 asset_save_dir=args.asset_save_dir,
-                cache_data_dir=args.cache_data_dir,
                 mineru_model_source=args.mineru_model_source,
                 mineru_device=args.mineru_device,
             )

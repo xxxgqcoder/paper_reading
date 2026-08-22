@@ -6,7 +6,6 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-import tiktoken
 import xxhash
 from diskcache import Cache
 
@@ -49,22 +48,6 @@ def time_it(prefix: str = "") -> Callable[[Callable[..., Any]], Callable[..., An
     return decorator
 
 
-def estimate_token_num(text: str) -> tuple[int, list[str]]:
-    if text is None or len(text.strip()) == 0:
-        return 0, []
-
-    encoding = tiktoken.get_encoding("cl100k_base")
-    # 将论文正文中形如 <|endoftext|> 的字面文本按普通文本处理，
-    # 避免 tiktoken 将其识别为受限特殊 token 后直接抛错。
-    tokens = encoding.encode(text, disallowed_special=())
-    token_strings = [
-        encoding.decode_single_token_bytes(token).decode("utf-8", "replace")
-        for token in tokens
-    ]
-
-    return len(tokens), token_strings
-
-
 def hash64(content: bytes) -> str:
     return xxhash.xxh64(content).hexdigest()
 
@@ -87,22 +70,6 @@ def load_base64_image(p: str) -> str:
     return base64_string
 
 
-def safe_strip(raw: str) -> str:
-    if raw is None or len(raw) == 0:
-        return ""
-    raw = str(raw)
-    return raw.strip()
-
-
-def is_empty(text: str) -> bool:
-    text = safe_strip(text)
-    if text is None:
-        return True
-    if len(text) == 0:
-        return True
-    return text == "[]"
-
-
 def relative_md_image_path(sys_image_folder: str, img_name: str) -> str:
     return (
         f"![[{os.path.join(os.path.basename(sys_image_folder), img_name)}]]"
@@ -110,17 +77,10 @@ def relative_md_image_path(sys_image_folder: str, img_name: str) -> str:
     )
 
 
-def ensure_utf(text: str) -> str:
-    if text is None:
-        return text
-    text = text.encode("utf-8", errors="ignore").decode("utf-8")
-    return text
-
-
 def cache_it(
     key_generator: Callable[..., str],
     ttl_seconds=60 * 60 * 24 * 100,
-    cache_data_dir: str = "~/.cache/llm_cache",
+    cache_data_dir: str = "~/.cache/paper-reading",
 ) -> Callable[..., Callable[..., T]]:
     """
     File-based cache decorator using diskcache.

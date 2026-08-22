@@ -2,11 +2,11 @@
 
 > 中文文档（默认）: [README.md](README.md)
 
-`paper-reading` provides one PDF workflow for inspecting contents and page-number offsets, extracting chapters or page ranges, and parsing PDFs to Markdown with MineRU. AI summarization and translation are opt-in and disabled by default.
+`paper-reading` provides one PDF workflow for inspecting contents and page-number offsets, extracting chapters or page ranges, and parsing PDFs to Markdown with MineRU.
 
 ## Features
 
-- `parse`: extract text, images, tables, and formulas to Markdown; defaults to `original` only and does not call an LLM.
+- `parse`: extract text, images, tables, and formulas to source-preserving Markdown.
 - `inspect`: read front matter and report TOC candidates, chapter entries, total PDF pages, and printed/PDF page-offset evidence.
 - `extract`: extract printed page ranges with `pdf_page = printed_page + offset`.
 - `pdf_reading()`: unified Python API, with legacy APIs retained temporarily.
@@ -51,21 +51,7 @@ uv run paper-reading parse \
   --output_dir /absolute/path/output
 ```
 
-The default is `--steps original`, so no LLM endpoint or API key is required and no AI summary or translation is generated. Assets are saved next to the PDF under `{pdf_stem}_images/` by default.
-
-Only configure an LLM when the user explicitly asks for AI output:
-
-```sh
-export PR_LLM_ENDPOINT="https://example.com/v1"
-export PR_LLM_API_KEY="<your-api-key>"
-
-uv run paper-reading parse \
-  --file_path /absolute/path/paper.pdf \
-  --output_dir /absolute/path/output \
-  --steps summary,translate,original
-```
-
-Do not place API keys in scripts, command history, logs, or documentation. A local Ollama endpoint may omit the API key.
+The default is `--steps original`, which writes the source-preserving parsed content. Assets are saved next to the PDF under `{pdf_stem}_images/` by default.
 
 ### Inspect contents and page offset
 
