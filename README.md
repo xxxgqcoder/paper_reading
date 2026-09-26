@@ -53,6 +53,8 @@ uv run paper-reading parse \
 
 默认步骤是 `original`，输出原始解析内容；图片默认保存到 PDF 同级的 `{pdf_stem}_images/`。
 
+MineRU 输出的标题全部是一级标题（`#`）。解析完成后 Agent 必须按标题编号层级校正前导 `#` 数量（前导 `#` 数 = 编号段数 + 1，例如 `3.1.1 数据` → `#### 3.1.1 数据`），并用 `rg -n '^#{1,6} ' <output>.md` 核对后再交付。完整规则见 [pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md)。
+
 ### 检查目录与页码偏移
 
 ```sh

@@ -53,6 +53,8 @@ uv run paper-reading parse \
 
 The default is `--steps original`, which writes the source-preserving parsed content. Assets are saved next to the PDF under `{pdf_stem}_images/` by default.
 
+MineRU writes every heading as a level-1 heading (`#`). After parsing, the Agent must restore the leading `#` count from the numbering depth (leading `#` count = numbering segments + 1, so `3.1.1 Data` becomes `#### 3.1.1 Data`) and verify the result with `rg -n '^#{1,6} ' <output>.md`. See [pdf-reading-skill/SKILL.md](.agents/skills/pdf-reading-skill/SKILL.md) for the full rules.
+
 ### Inspect contents and page offset
 
 ```sh

@@ -1,6 +1,6 @@
 ---
 name: pdf-reading-skill
-description: 'Install the paper-reading CLI and Skill, inspect PDF contents and page-number offsets, extract chapters or page ranges, and parse PDFs to source-preserving Markdown.'
+description: 'Install the paper-reading CLI and Skill, inspect PDF contents and page-number offsets, extract chapters or page ranges, parse PDFs to source-preserving Markdown, and correct leading heading levels in the parsed Markdown.'
 ---
 
 # PDF Reading Skill
@@ -10,7 +10,8 @@ description: 'Install the paper-reading CLI and Skill, inspect PDF contents and 
 ## 默认行为
 
 - 默认只执行 `original`：用 MineRU 将 PDF 解析为 Markdown，并保留原始内容结构。
-- Skill 只负责 PDF 检查、页面提取和源内容解析；解析后的 Markdown 由上层阅读流程按需处理。
+- MineRU 会把解析出的所有标题都写成一级标题（`#`），原层级只保留在标题文字里；解析完成后 Agent 必须按标题编号层级校正前导 `#` 数量，见「解析后校正标题层级」。
+- 除标题层级校正外，Skill 只负责 PDF 检查、页面提取和源内容解析；其余后处理由上层阅读流程按需处理。
 
 ## Agent 安装 CLI 与 Skill
 
@@ -57,6 +58,8 @@ cmp -s \
 ```sh
 paper-reading download-models --source modelscope
 ```
+
+注意：该命令是**预取**，不是更新检查。mineru 在写入 `models-dir` 配置后，对后续 model path 会直接返回本地缓存路径，不再比对上游，因此 `download-models` 可能跳过部分模型。需要确认上游是否有新模型时，直接用 modelscope 的 `snapshot_download` 按 `allow_patterns` 定向比对模型仓库 `OpenDataLab/PDF-Extract-Kit-1.0`（mineru 3.4+ 的 pipeline 模型集为 `models/Layout/PP-DocLayoutV2`、`models/MFR/unimernet_hf_small_2503`、`models/MFR/pp_formulanet_plus_m`、`models/OCR/paddleocr_torch`、`models/TabRec/SlanetPlus`、`models/TabRec/UnetStructure`、`models/TabCls/paddle_table_cls`）。
 
 ## 统一入口
 
@@ -112,6 +115,30 @@ paper-reading parse \
 等价于 `--steps original`。图片默认保存到 PDF 同级的 `{pdf_stem}_images/`，Markdown 使用 Obsidian wikilink 引用。
 
 若输出 Markdown 已存在且非空，工具会停止，避免覆盖；需要重跑时先由用户确认如何处理已有结果。
+
+### 解析后校正标题层级（Agent 必做）
+
+`parse` 完成后不能直接把输出交给上层阅读流程：MineRU 输出的标题全部是一级标题，层级信息只留在标题文字里。Agent 必须检查输出 Markdown 的标题行，按标题内容的编号层级补齐前导 `#`。
+
+映射规则：**前导 `#` 数量 = 标题编号的段数 + 1**（以文档标题为唯一的 `#`）。
+
+| 标题示例 | 前导 `#` |
+|---|---|
+| 文档标题（书名 / 论文标题，无编号） | `#` |
+| `3. 方法` | `##` |
+| `3.1 概述` | `###` |
+| `3.1.1 数据` | `####` |
+| `3.1.1.1 实现细节` | `#####` |
+
+执行要求：
+
+1. 通读输出 Markdown 的全部标题行，识别编号形态：`3.`、`3.1`、`3.1.1`、`3.1.1.1`，以及 `Chapter 3`、`A.1`、`1)` 等变体。
+2. 只修改标题行的前导 `#` 数量；不改标题文字、编号和标点，不新增、删除、合并或重排标题行，也不改动正文、公式和图片位置。
+3. 无编号标题（Abstract、References、Appendix、致谢、图表标题等）按其在文中的位置判断层级；无法判断时保持一级标题并在报告中说明。
+4. 层级必须连续、不跳级，最大不超过六级。若解析结果没有独立的文档标题行、编号不从 1 开始（例如只解析了某一章），或编号段数 + 1 超过六级，则按同一相对关系整体调整，并说明调整理由。
+5. 校验：用 `rg -n '^#{1,6} ' <output>.md` 逐条核对，确认每个标题的 `#` 数量等于其编号段数 + 1（或符合第 4 条的调整规则）、相邻层级只差一级；不符的标题必须先修正再交付。
+
+修正后向用户报告：文档标题、各级标题的数量分布、以及是否存在按第 3、4 条特殊处理的标题。
 
 ## Python API
 
