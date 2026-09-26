@@ -28,6 +28,7 @@ Usage (get-schema):
 
 import argparse
 import asyncio
+import inspect
 import json
 import os
 import shutil
@@ -46,6 +47,19 @@ if not _SKILLS_DIR.is_dir():
 # 全局 skill 安装目标目录
 _GLOBAL_SKILLS_DIR = Path.home() / ".agents" / "skills"
 _LEGACY_SKILL_NAMES = ("digest-to-md", "extract-pages")
+
+
+def _accepts_model_source(func: object) -> bool:
+    """判断 mineru 的 download_pipeline_models 是否需要 model_source 参数。
+
+    mineru 3.1-3.3 为 download_pipeline_models()；
+    mineru 3.4+ 改为 download_pipeline_models(model_source)。
+    """
+    try:
+        parameters = inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+    return bool(parameters)
 
 
 def _download_models(model_name: str = "all", source: str = "huggingface") -> None:
@@ -93,7 +107,10 @@ def _download_models(model_name: str = "all", source: str = "huggingface") -> No
         sys.exit(1)
 
     try:
-        download_pipeline_models()
+        if _accepts_model_source(download_pipeline_models):
+            download_pipeline_models(source)
+        else:
+            download_pipeline_models()
         print(
             json.dumps(
                 {"status": "success", "source": source, "model": model_name},
